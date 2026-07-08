@@ -1,10 +1,16 @@
 import { nanoid } from "nanoid";
 import { guests as seedGuests } from "../../shared/seed.js";
+import { loadState, saveState } from "../../shared/cloudStore.js";
 import { createService, fail, ok, parseMoney } from "../../shared/service.js";
 
 const port = Number(process.env.GUESTS_PORT || 7103);
 const { app, listen } = createService({ name: "guests", port, description: "Registro de huespedes, check-in y check-out" });
-const guests = structuredClone(seedGuests);
+let guests = structuredClone(seedGuests);
+guests = await loadState("guests", seedGuests);
+
+function persist() {
+  saveState("guests", guests);
+}
 
 app.get("/", (req, res) => {
   const { q = "", status = "all" } = req.query;
@@ -26,6 +32,7 @@ app.post("/", (req, res) => {
     ...req.body
   };
   guests.unshift(guest);
+  persist();
   ok(res, guest, 201);
 });
 
@@ -33,6 +40,7 @@ app.post("/:id/payment", (req, res) => {
   const guest = guests.find((item) => item.id === req.params.id);
   if (!guest) return fail(res, "Huesped no encontrado", 404);
   guest.paid = parseMoney(guest.paid + parseMoney(req.body.amount));
+  persist();
   ok(res, guest);
 });
 
@@ -41,6 +49,7 @@ app.post("/:id/checkout", (req, res) => {
   if (!guest) return fail(res, "Huesped no encontrado", 404);
   guest.status = "checkout";
   guest.checkoutAt = new Date().toISOString();
+  persist();
   ok(res, guest);
 });
 

@@ -1,12 +1,14 @@
 import { nanoid } from "nanoid";
 import { guests, incidents as seedIncidents } from "../../shared/seed.js";
+import { loadState, saveState } from "../../shared/cloudStore.js";
 import { createService, ok } from "../../shared/service.js";
 
 const port = Number(process.env.OPERATIONS_PORT || 7104);
 const { app, listen } = createService({ name: "operations", port, description: "Bitacora, checklist, agenda y alertas" });
-const incidents = structuredClone(seedIncidents);
+let incidents = structuredClone(seedIncidents);
+incidents = await loadState("incidents", seedIncidents);
 
-const checklist = [
+let checklist = [
   "Contar efectivo en caja",
   "Revisar bitacora del turno anterior",
   "Verificar llegadas y salidas del dia",
@@ -14,6 +16,15 @@ const checklist = [
   "Revisar llaves y tarjetas de acceso",
   "Comprobar suministros de recepcion"
 ].map((title, index) => ({ id: `c${index + 1}`, title, done: false }));
+checklist = await loadState("checklist", checklist);
+
+function persistIncidents() {
+  saveState("incidents", incidents);
+}
+
+function persistChecklist() {
+  saveState("checklist", checklist);
+}
 
 app.get("/agenda", (_req, res) => {
   ok(res, {
@@ -42,6 +53,7 @@ app.post("/incidents", (req, res) => {
     ...req.body
   };
   incidents.unshift(incident);
+  persistIncidents();
   ok(res, incident, 201);
 });
 
@@ -51,6 +63,7 @@ app.patch("/incidents/:id/resolve", (req, res) => {
     incident.status = "resolved";
     incident.resolution = req.body.resolution || "Resuelto";
     incident.resolvedAt = new Date().toISOString();
+    persistIncidents();
   }
   ok(res, incident);
 });
@@ -60,6 +73,7 @@ app.get("/checklist", (_req, res) => ok(res, checklist));
 app.patch("/checklist/:id", (req, res) => {
   const item = checklist.find((entry) => entry.id === req.params.id);
   if (item) item.done = Boolean(req.body.done);
+  persistChecklist();
   ok(res, item);
 });
 

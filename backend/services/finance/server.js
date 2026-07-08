@@ -1,12 +1,21 @@
 import { nanoid } from "nanoid";
 import { movements as seedMovements, shifts as seedShifts } from "../../shared/seed.js";
+import { loadState, saveState } from "../../shared/cloudStore.js";
 import { createService, fail, ok, parseMoney } from "../../shared/service.js";
 
 const port = Number(process.env.FINANCE_PORT || 7105);
 const { app, listen } = createService({ name: "finance", port, description: "Caja por turnos, ingresos y reportes contables" });
-const movements = structuredClone(seedMovements);
-const shifts = structuredClone(seedShifts);
+let movements = structuredClone(seedMovements);
+let shifts = structuredClone(seedShifts);
 let openShift = null;
+const financeState = await loadState("finance", { movements: seedMovements, shifts: seedShifts, openShift: null });
+movements = financeState.movements || seedMovements;
+shifts = financeState.shifts || seedShifts;
+openShift = financeState.openShift || null;
+
+function persist() {
+  saveState("finance", { movements, shifts, openShift });
+}
 
 app.get("/movements", (_req, res) => ok(res, movements));
 
@@ -46,6 +55,7 @@ app.post("/movements", (req, res) => {
     amount: parseMoney(req.body.amount)
   };
   movements.unshift(movement);
+  persist();
   ok(res, movement, 201);
 });
 
@@ -68,6 +78,7 @@ app.post("/shifts/open", (req, res) => {
     status: "open",
     openedAt: new Date().toISOString()
   };
+  persist();
   ok(res, openShift, 201);
 });
 
@@ -78,6 +89,7 @@ app.post("/shifts/close", (req, res) => {
   const shift = { ...openShift, closed, expected, difference: parseMoney(closed - expected), status: "closed", closedAt: new Date().toISOString() };
   shifts.unshift(shift);
   openShift = null;
+  persist();
   ok(res, shift);
 });
 

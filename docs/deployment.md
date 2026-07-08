@@ -33,6 +33,10 @@ MAIL_PASS=TU_SMTP_KEY_DE_BREVO
 MAIL_FROM=Wild Incas <correo_verificado_en_brevo@tudominio.com>
 APP_PUBLIC_URL=https://TU_FRONTEND.vercel.app
 GATEWAY_PUBLIC_URL=https://TU_BACKEND.onrender.com
+SUPABASE_URL=https://rfzqwfczhubbprdohamb.supabase.co
+SUPABASE_PUBLISHABLE_KEY=TU_PUBLISHABLE_KEY
+SUPABASE_SECRET_KEY=TU_SECRET_KEY
+SUPABASE_JWKS_URL=https://rfzqwfczhubbprdohamb.supabase.co/auth/v1/.well-known/jwks.json
 ```
 
 Render define `PORT` automaticamente. El API Gateway lo usa cuando existe.
@@ -64,3 +68,19 @@ VITE_API_URL=https://TU_BACKEND.onrender.com/api
 ```
 
 Despues de cambiar esta variable, redeploy.
+
+## Supabase Cloud
+
+Antes de usar Render con Supabase, entra a Supabase SQL Editor y ejecuta:
+
+```sql
+create table if not exists public.simot_state (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.simot_state enable row level security;
+```
+
+El backend guarda ahi habitaciones, huespedes, caja, usuarios, empleados, novedades y comprobantes.

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { nanoid } from "nanoid";
+import { loadState, saveState } from "../../shared/cloudStore.js";
 import { createService, fail, ok } from "../../shared/service.js";
 
 const port = Number(process.env.AUTH_PORT || 7101);
@@ -12,10 +13,15 @@ const roles = [
   { id: "contabilidad", name: "Contabilidad", modules: ["income", "cash", "notifications"], description: "Caja, movimientos, comprobantes y exportaciones." }
 ];
 
-const users = [
+let users = [
   { id: "u1", username: "apolo", password: "admin123", name: "Apolo", email: "admin@wildincas.com", roleId: "admin", role: "Administrador", modules: ["all"], status: "active" },
   { id: "u2", username: "vmora", password: "recep123", name: "Valentina Mora", email: "vmora@wildincas.com", roleId: "recepcion", role: "Recepcion", modules: ["dashboard", "rooms", "guests", "cash", "income", "notifications"], status: "active" }
 ];
+users = await loadState("auth_users", users);
+
+function persistUsers() {
+  saveState("auth_users", users);
+}
 
 const sessions = new Map();
 
@@ -66,6 +72,7 @@ app.post("/users", (req, res) => {
     createdAt: new Date().toISOString()
   };
   users.unshift(user);
+  persistUsers();
   ok(res, sanitize(user), 201);
 });
 
@@ -82,6 +89,7 @@ app.patch("/users/:id", (req, res) => {
   for (const field of ["name", "email", "status"]) {
     if (req.body[field] !== undefined) user[field] = req.body[field];
   }
+  persistUsers();
   ok(res, sanitize(user));
 });
 

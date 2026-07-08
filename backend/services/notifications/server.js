@@ -1,10 +1,16 @@
 import nodemailer from "nodemailer";
 import { nanoid } from "nanoid";
+import { loadState, saveState } from "../../shared/cloudStore.js";
 import { createService, fail, ok, parseMoney } from "../../shared/service.js";
 
 const port = Number(process.env.NOTIFICATIONS_PORT || 7107);
 const { app, listen } = createService({ name: "notifications", port, description: "Envio de comprobantes y notificaciones" });
-const sent = [];
+let sent = [];
+sent = await loadState("notifications", []);
+
+function persist() {
+  saveState("notifications", sent);
+}
 
 function createTransport() {
   if (!process.env.MAIL_HOST) return null;
@@ -35,6 +41,7 @@ async function deliver(message) {
     record.status = "sent";
   }
   sent.unshift(record);
+  persist();
   return record;
 }
 
