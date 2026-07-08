@@ -39,6 +39,16 @@ async function waitForJson(url, attempts = 30) {
   throw lastError;
 }
 
+async function waitForGatewayServices(count = 7) {
+  let payload;
+  for (let index = 0; index < 30; index += 1) {
+    payload = await waitForJson("http://127.0.0.1:8080/health");
+    if ((payload.services || []).length >= count) return payload;
+    await wait(500);
+  }
+  return payload;
+}
+
 async function main() {
   for (const [name, file] of commands) {
     const child = spawn(process.execPath, [file], { stdio: ["ignore", "pipe", "pipe"] });
@@ -47,7 +57,7 @@ async function main() {
     children.push(child);
   }
 
-  const health = await waitForJson("http://127.0.0.1:8080/health");
+  const health = await waitForGatewayServices(7);
   assert.equal(health.status, "ok");
   assert.ok(health.services.length >= 7);
 
@@ -70,6 +80,17 @@ async function main() {
     body: JSON.stringify({ to: "test@wildincas.local", guestName: "Test", amount: 25, concept: "Prueba" })
   });
   assert.equal(receipt.data.status, "logged");
+
+  const welcome = await readJson("http://127.0.0.1:8080/api/notifications/employees/welcome", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to: "empleado@wildincas.local", name: "Empleado Test", username: "etest", password: "Temp123", role: "Recepcion" })
+  });
+  assert.equal(welcome.data.type, "employee-welcome");
+
+  const exportResponse = await fetch("http://127.0.0.1:8080/api/finance/export.xls");
+  assert.equal(exportResponse.ok, true);
+  assert.ok((await exportResponse.text()).includes("SIMOT v2.0 - Reporte contable"));
 
   console.log("Smoke test passed");
 }

@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 
 const app = express();
-const port = Number(process.env.GATEWAY_PORT || 8080);
+const port = Number(process.env.PORT || process.env.GATEWAY_PORT || 8080);
 const discoveryUrl = process.env.DISCOVERY_URL || "http://127.0.0.1:7000";
 
 const routes = {

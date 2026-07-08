@@ -25,3 +25,5 @@ npm run dev
 ## Variables
 
 Copiar `.env.example` y configurar SMTP para envio real de comprobantes.
+
+Guia de despliegue y Brevo: `docs/deployment.md`.
