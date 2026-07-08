@@ -1,0 +1,27 @@
+{
+  "name": "backend_wildincas",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n discovery,auth,rooms,guests,ops,finance,employees,notifications,gateway -c cyan,green,blue,magenta,yellow,red,white,gray,bgBlue \"npm:dev:discovery\" \"npm:dev:auth\" \"npm:dev:rooms\" \"npm:dev:guests\" \"npm:dev:operations\" \"npm:dev:finance\" \"npm:dev:employees\" \"npm:dev:notifications\" \"npm:dev:gateway\"",
+    "dev:discovery": "node backend/discovery/server.js",
+    "dev:gateway": "node backend/api-gateway/server.js",
+    "dev:auth": "node backend/services/auth/server.js",
+    "dev:rooms": "node backend/services/rooms/server.js",
+    "dev:guests": "node backend/services/guests/server.js",
+    "dev:operations": "node backend/services/operations/server.js",
+    "dev:finance": "node backend/services/finance/server.js",
+    "dev:employees": "node backend/services/employees/server.js",
+    "dev:notifications": "node backend/services/notifications/server.js",
+    "start": "npm run dev",
+    "test": "node backend/tests/smoke.test.js"
+  },
+  "dependencies": {
+    "concurrently": "^9.1.2",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "nanoid": "^5.0.9",
+    "nodemailer": "^9.0.3"
+  }
+}

@@ -1,0 +1,125 @@
+services:
+  discovery:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:discovery
+    environment:
+      DISCOVERY_PORT: 7000
+    ports:
+      - "7000:7000"
+
+  auth:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:auth
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://auth:7101
+      AUTH_PORT: 7101
+    depends_on:
+      - discovery
+
+  rooms:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:rooms
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://rooms:7102
+      ROOMS_PORT: 7102
+    depends_on:
+      - discovery
+
+  guests:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:guests
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://guests:7103
+      GUESTS_PORT: 7103
+    depends_on:
+      - discovery
+
+  operations:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:operations
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://operations:7104
+      OPERATIONS_PORT: 7104
+    depends_on:
+      - discovery
+
+  finance:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:finance
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://finance:7105
+      FINANCE_PORT: 7105
+    depends_on:
+      - discovery
+
+  employees:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:employees
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://employees:7106
+      EMPLOYEES_PORT: 7106
+    depends_on:
+      - discovery
+
+  notifications:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:notifications
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://notifications:7107
+      NOTIFICATIONS_PORT: 7107
+    depends_on:
+      - discovery
+
+  gateway:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:gateway
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      GATEWAY_PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - discovery
+      - auth
+      - rooms
+      - guests
+      - operations
+      - finance
+      - employees
+      - notifications
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: http://127.0.0.1:8080/api
+    ports:
+      - "5174:80"
+    depends_on:
+      - gateway

@@ -1,0 +1,175 @@
+PDF: C:\Users\ACER\Downloads\informe .pdf
+Pages: 8
+
+--- PAGE 1 ---
+Instituto Sudamericano
+Desarrollo de Software
+INFORME DE EXPOSICION
+SIMOT v2.0 - Sistema de Gestion para Hostal
+Wild Incas Backpackers Hostal
+Integrantes:
+Jose Gutierrez
+Cristian Rojas Benavides
+Rogier Padilla
+Cuenca, Ecuador
+Mayo 2026
+
+--- PAGE 2 ---
+1. Introduccion
+El presente informe describe el sistema SIMOT v2.0, un software de gestion desarrollado para el
+hostal Wild Incas Backpackers Hostal, ubicado en Cuenca, Ecuador. Este proyecto fue elaborado
+por estudiantes del Instituto Sudamericano como parte de su formacion en Desarrollo de Software.
+Durante la exposicion se presento el funcionamiento del sistema, mostrando cada uno de los
+modulos que lo componen: inicio de sesion, dashboard principal, gestion de habitaciones, registro
+de huespedes, bitacora de novedades, caja por turnos y administracion de empleados. Ademas se
+expuso el cronograma de desarrollo del proyecto.
+2. Descripcion del Sistema
+SIMOT v2.0 es una plataforma web disenada para cubrir las necesidades operativas y
+administrativas del hostal Wild Incas. El sistema permite controlar el estado de las habitaciones,
+registrar huespedes, gestionar el flujo de caja por turnos, llevar una bitacora de novedades y
+administrar al personal del hostal.
+A continuacion se describen cada una de las pantallas presentadas durante la exposicion.
+2.1 Pantalla de Inicio de Sesion
+La primera pantalla del sistema es el modulo de acceso. Esta pantalla se divide en dos secciones:
+del lado izquierdo se muestra la identidad visual del hostal con el nombre "Wild Incas Backpackers
+Hostal", la ubicacion "Cuenca - Ecuador" y la informacion del equipo de desarrollo. Del lado
+derecho se encuentra el formulario de inicio de sesion con los campos de usuario y contrasena,
+junto con el boton "Ingresar al sistema".
+
+--- PAGE 3 ---
+Figura 1. Pantalla de inicio de sesion - SIMOT v2.0
+2.2 Dashboard Principal
+El dashboard es la pantalla principal del sistema. En el se puede visualizar de forma rapida el
+estado de todas las habitaciones del hostal, clasificadas por colores segun su estado: disponible,
+ocupada, en limpieza o reservada. En la parte derecha se muestra la agenda del dia con las
+salidas programadas, las llegadas esperadas y los cobros pendientes. En la parte inferior aparecen
+los ultimos movimientos financieros registrados en el sistema.
+Figura 2. Dashboard principal con estado de habitaciones y agenda del dia
+2.3 Modulo de Habitaciones
+El modulo de habitaciones muestra el estado detallado de cada habitacion del hostal, organizadas
+por pisos. Cada tarjeta muestra el numero de habitacion, el tipo (dormitorio compartido, habitacion
+privada, suite), la capacidad, la tarifa por noche, la fecha de la ultima limpieza y la informacion del
+huesped actual si la habitacion esta ocupada. Tambien se muestran etiquetas de estado (ocupada,
+disponible, limpieza) y alertas cuando la salida es ese mismo dia.
+
+--- PAGE 4 ---
+Figura 3. Modulo de gestion de habitaciones por pisos
+2.4 Modulo de Huespedes
+El modulo de huespedes permite registrar y consultar la informacion de todos los huespedes del
+hostal. Se muestra una tabla con los datos de cada huesped: nombre, tipo y numero de documento,
+habitacion asignada, fechas de estancia, horario de salida, estado del pago y estado general
+(activo, reservado, check-out). El sistema permite filtrar por estado y buscar por nombre,
+documento o email. Tambien se pueden agregar nuevos huespedes desde este modulo.
+
+--- PAGE 5 ---
+Figura 4. Modulo de registro y gestion de huespedes
+2.5 Bitacora de Novedades
+La bitacora de novedades es un modulo pensado para registrar eventos, incidencias, tareas de
+mantenimiento y cualquier novedad relevante que ocurra durante el turno. Permite filtrar las
+novedades por estado (abiertas, resueltas, todas) y por categoria (incidencia, mantenimiento,
+huesped, seguridad, general). Cuando no hay registros que coincidan con los filtros aplicados, el
+sistema muestra el mensaje "No hay novedades con estos filtros".
+Figura 5. Bitacora de novedades del turno
+2.6 Modulo de Caja por Turnos
+El modulo de caja permite gestionar la apertura y cierre de caja por cada turno de trabajo. Para
+abrir la caja se debe indicar el responsable, seleccionar el turno (manana, tarde o noche) y
+registrar el monto inicial en efectivo. Antes de abrir, el sistema muestra un checklist de inicio de
+turno con tareas que deben verificarse, como contar el efectivo, revisar la bitacora anterior, verificar
+llegadas y salidas del dia, entre otras. Ademas se muestra el historial de turnos anteriores con el
+monto inicial, el cierre real, el monto esperado y la diferencia.
+
+--- PAGE 6 ---
+Figura 6. Modulo de caja por turnos con checklist de inicio
+2.7 Modulo de Empleados
+El modulo de empleados muestra la informacion del personal del hostal. Se puede ver quien esta
+activo en el turno actual, con su nombre y horario. Cada tarjeta de empleado contiene su nombre,
+cargo, horario de turno, numero de telefono, correo electronico y nombre de usuario en el sistema.
+Tambien se indica desde que fecha trabaja en el hostal, cuantos modulos tiene acceso y si su
+estado es activo. Desde este modulo el administrador puede agregar nuevos empleados.
+
+--- PAGE 7 ---
+Figura 7. Modulo de gestion de empleados
+3. Cronograma de Desarrollo
+El proyecto siguio un cronograma de trabajo tipo Gantt dividido en cuatro fases principales. A
+continuacion se presenta el cronograma original y luego se describe el avance realizado hasta la
+fecha de la exposicion.
+Figura 8. Cronograma Gantt del proyecto SIMOT v2.0
+3.1 Avance del Proyecto al 29 de Mayo de 2026
+Al momento de la exposicion, realizada el 29 de mayo de 2026, el equipo habia completado todas
+las tareas programadas hasta esa fecha. A continuacion se detalla lo ejecutado por fase:
+Fase 1 - Analisis y Diseno: Se completaron todas las actividades de esta fase, incluyendo el
+relevamiento de requerimientos, las entrevistas con el hostal, el diseno del modelo de base de
+datos (ER), la definicion de modulos y API, los wireframes de UI/UX, y la revision y aprobacion del
+diseno.
+Fase 2 - Infraestructura: Se realizo la configuracion completa del entorno de desarrollo, el servidor
+y la base de datos, el scaffolding de Angular para el frontend y el scaffolding de la API REST para
+el backend, ademas del pipeline basico de CI/CD.
+Fase 3 - Desarrollo Core: Se desarrollaron e implementaron todos los modulos del nucleo del
+sistema: el modulo de usuarios efimeros con autenticacion, la gestion de habitaciones, el
+dashboard con mapa de habitaciones, el modulo de check-in y check-out, el modulo de limpieza y
+mantenimiento, la bitacora de novedades con sistema de alertas, y el checklist de inicio de turno.
+
+--- PAGE 8 ---
+Fase 4 - Modulo Contable: Se avanzo con el diseno del flujo de apertura y cierre de caja, tarea que
+se encontraba en ejecucion dentro del periodo cubierto hasta el 29 de mayo de 2026.
+4. Conclusiones
+El sistema SIMOT v2.0 fue desarrollado satisfactoriamente, cubriendo los principales modulos de
+gestion operativa y administrativa del hostal Wild Incas. Durante la exposicion se demostro el
+funcionamiento de cada pantalla del sistema, evidenciando que el proyecto cumple con los
+requerimientos levantados al inicio del proceso.
+El equipo de trabajo conformado por Jose Gutierrez, Cristian Rojas Benavides y Rogier Padilla
+logro ejecutar el cronograma planificado, completando todas las tareas programadas hasta el 29 de
+mayo de 2026 y entregando un producto funcional que puede ser utilizado por el personal del
+hostal para mejorar su gestion diaria.
+
+================================================================================
+
+XLSX: C:\Users\ACER\Downloads\gantt_hostal_erp.xlsx
+Sheets: Gantt ERP Hostal
+
+--- SHEET Gantt ERP Hostal (47x103) ---
+['  CRONOGRAMA GANTT —  HOSTALWill   |  10 Abr → 16 Jul 2025']
+['#', 'FASE', 'TAREA', 'RESPONSABLE', 'DÍAS', 'Abril 2025', 'Mayo 2025', 'Junio 2025', 'Julio 2025']
+[10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+['J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X', 'J', 'V', 'S', 'D', 'L', 'M', 'X']
+['  1. Análisis y Diseño']
+[1, 'Análisis y Diseño', 'Relevamiento de requerimientos', 'Christian', 7]
+[2, 'Análisis y Diseño', 'Entrevistas con el hostal', 'José', 5]
+[3, 'Análisis y Diseño', 'Diseño BD (modelo ER)', 'Rogier', 8]
+[4, 'Análisis y Diseño', 'Definición de módulos y API', 'Christian + Roger', 6]
+[5, 'Análisis y Diseño', 'Wireframes UI/UX', 'José', 8]
+[6, 'Análisis y Diseño', 'Revisión y aprobación del diseño', 'Christian + José + Rogier', 3]
+['  2. Infraestructura']
+[7, 'Infraestructura', 'Setup entorno de desarrollo', 'Rogier', 4]
+[8, 'Infraestructura', 'Configuración del servidor / BD', 'Rogier', 5]
+[9, 'Infraestructura', 'Scaffolding Angular (Frontend)', 'José', 5]
+[10, 'Infraestructura', 'Scaffolding API REST (Backend)', 'Christian', 5]
+[11, 'Infraestructura', 'CI/CD pipeline básico', 'Christian + Rogier', 4]
+['  3. Desarrollo Core']
+[12, 'Desarrollo Core', 'Módulo Usuarios Efímeros + Auth', 'Christian', 10]
+[13, 'Desarrollo Core', 'Módulo Gestión de Habitaciones', 'Rogier', 10]
+[14, 'Desarrollo Core', 'Dashboard - Mapa de habitaciones', 'José', 10]
+[15, 'Desarrollo Core', 'Módulo Check-in / Check-out', 'Christian + José', 10]
+[16, 'Desarrollo Core', 'Módulo Limpieza y Mantenimiento', 'Rogier', 8]
+[17, 'Desarrollo Core', 'Bitácora de Novedades (alertas)', 'José', 10]
+[18, 'Desarrollo Core', 'Checklist inicio de turno', 'Christian', 7]
+['  4. Módulo Contable']
+[19, 'Módulo Contable', 'Diseño flujo apertura/cierre caja', 'Christian + Rogier', 5]
+[20, 'Módulo Contable', 'Backend: lógica contable turnos', 'Rogier', 10]
+[21, 'Módulo Contable', 'Frontend: panel caja chica', 'José', 10]
+[22, 'Módulo Contable', 'Reportes por turno / exportación', 'Christian', 10]
+[23, 'Módulo Contable', 'Integración módulo Auth ↔ Contable', 'Christian + Rogier', 5]
+['  5. Pruebas y Entrega']
+[24, 'Pruebas y Entrega', 'Pruebas de integración (backend)', 'Rogier', 8]
+[25, 'Pruebas y Entrega', 'Pruebas UI / UX (frontend)', 'José', 8]
+[26, 'Pruebas y Entrega', 'Corrección de bugs', 'Christian + José + Rogier', 7]
+[27, 'Pruebas y Entrega', 'Documentación técnica', 'Christian', 7]
+[28, 'Pruebas y Entrega', 'Manual de usuario / pasantes', 'José', 7]
+[29, 'Pruebas y Entrega', 'Deploy en servidor de producción', 'Rogier', 5]
+[30, 'Pruebas y Entrega', 'Presentación final del proyecto', 'Christian + José + Roger', 3]
+['LEYENDA DE RESPONSABLES']
+['Christian']
+['José']
+['Rogier']
+['Tarea Compartida']
+['Fin de semana']
