@@ -115,3 +115,5 @@ services:
         value: "587"
       - key: MAIL_SECURE
         value: "false"
+      - key: BREVO_API_KEY
+        sync: false

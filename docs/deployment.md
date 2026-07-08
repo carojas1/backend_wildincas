@@ -30,6 +30,7 @@ MAIL_PORT=587
 MAIL_SECURE=false
 MAIL_USER=TU_LOGIN_SMTP_DE_BREVO
 MAIL_PASS=TU_SMTP_KEY_DE_BREVO
+BREVO_API_KEY=TU_API_KEY_DE_BREVO_OPCIONAL
 MAIL_FROM=Wild Incas <correo_verificado_en_brevo@tudominio.com>
 APP_PUBLIC_URL=https://TU_FRONTEND.vercel.app
 GATEWAY_PUBLIC_URL=https://TU_BACKEND.onrender.com
@@ -85,6 +86,7 @@ MAIL_PORT=587
 MAIL_SECURE=false
 MAIL_USER=...
 MAIL_PASS=...
+BREVO_API_KEY=...
 MAIL_FROM=...
 APP_PUBLIC_URL=...
 ```
@@ -100,6 +102,8 @@ En Brevo usa correo transaccional SMTP:
 5. Verificar el correo/remitente que pondras en `MAIL_FROM`.
 
 Importante: `MAIL_PASS` debe ser la clave SMTP, no tu contrasena de Brevo ni una API key.
+
+Si Brevo bloquea SMTP por IP, configura tambien `BREVO_API_KEY`. Notifications intentara SMTP primero y, si falla, usara la API transaccional como respaldo. En Brevo revisa que el remitente de `MAIL_FROM` este verificado y que las restricciones de IP permitan llamadas desde Render.
 
 ## Flujos de correo implementados
 
