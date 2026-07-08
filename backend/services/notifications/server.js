@@ -28,17 +28,24 @@ async function deliver(message) {
     id: nanoid(8),
     ...message,
     status: "logged",
+    error: "",
     createdAt: new Date().toISOString()
   };
   if (transport) {
-    await transport.sendMail({
-      from: process.env.MAIL_FROM || "SIMOT Wild Incas <no-reply@wildincas.local>",
-      to: message.to,
-      subject: message.subject,
-      text: message.text,
-      html: message.html
-    });
-    record.status = "sent";
+    try {
+      await transport.sendMail({
+        from: process.env.MAIL_FROM || "SIMOT Wild Incas <no-reply@wildincas.local>",
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        html: message.html
+      });
+      record.status = "sent";
+    } catch (error) {
+      record.status = "email_error";
+      record.error = error.message;
+      console.warn(`Email delivery failed: ${error.message}`);
+    }
   }
   sent.unshift(record);
   persist();

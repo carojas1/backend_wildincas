@@ -67,7 +67,7 @@ app.post("/users", (req, res) => {
     email,
     roleId: role.id,
     role: role.name,
-    modules: role.modules,
+    modules: Array.isArray(req.body.modules) && req.body.modules.length ? req.body.modules : role.modules,
     status: "active",
     createdAt: new Date().toISOString()
   };
@@ -86,6 +86,7 @@ app.patch("/users/:id", (req, res) => {
     user.role = role.name;
     user.modules = role.modules;
   }
+  if (Array.isArray(req.body.modules)) user.modules = req.body.modules;
   for (const field of ["name", "email", "status"]) {
     if (req.body[field] !== undefined) user[field] = req.body[field];
   }

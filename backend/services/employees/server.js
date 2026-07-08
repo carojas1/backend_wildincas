@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import { employees as seedEmployees } from "../../shared/seed.js";
 import { loadState, saveState } from "../../shared/cloudStore.js";
-import { createService, ok } from "../../shared/service.js";
+import { createService, fail, ok } from "../../shared/service.js";
 
 const port = Number(process.env.EMPLOYEES_PORT || 7106);
 const { app, listen } = createService({ name: "employees", port, description: "Empleados, turnos y permisos" });
@@ -27,6 +27,17 @@ app.post("/", (req, res) => {
   employees.unshift(employee);
   persist();
   ok(res, employee, 201);
+});
+
+app.patch("/:id", (req, res) => {
+  const employee = employees.find((item) => item.id === req.params.id);
+  if (!employee) return fail(res, "Empleado no encontrado", 404);
+  for (const field of ["name", "role", "shift", "hours", "phone", "email", "username", "status", "note"]) {
+    if (req.body[field] !== undefined) employee[field] = req.body[field];
+  }
+  if (req.body.modules !== undefined) employee.modules = Array.isArray(req.body.modules) ? req.body.modules : [];
+  persist();
+  ok(res, employee);
 });
 
 listen();

@@ -48,6 +48,20 @@ app.post("/", (req, res) => {
   ok(res, room, 201);
 });
 
+app.patch("/:id", (req, res) => {
+  const room = rooms.find((item) => item.id === req.params.id);
+  if (!room) return fail(res, "Habitacion no encontrada", 404);
+  for (const field of ["type", "status", "lastCleaned", "notes", "guestId"]) {
+    if (req.body[field] !== undefined) room[field] = req.body[field];
+  }
+  for (const field of ["floor", "capacity", "rate"]) {
+    if (req.body[field] !== undefined) room[field] = Number(req.body[field]);
+  }
+  if (room.rate < 0 || room.capacity < 1) return fail(res, "Capacidad y tarifa no validas", 422);
+  persist();
+  ok(res, room);
+});
+
 app.patch("/:id/status", (req, res) => {
   const room = rooms.find((item) => item.id === req.params.id);
   if (!room) return fail(res, "Habitacion no encontrada", 404);

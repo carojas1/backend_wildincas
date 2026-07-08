@@ -90,7 +90,7 @@ async function main() {
 
   const exportResponse = await fetch("http://127.0.0.1:8080/api/finance/export.xls");
   assert.equal(exportResponse.ok, true);
-  assert.ok((await exportResponse.text()).includes("SIMOT v2.0 - Reporte contable"));
+  assert.ok((await exportResponse.text()).includes("Wild Incas - Reporte contable"));
 
   console.log("Smoke test passed");
 }
