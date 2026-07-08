@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import { guests, incidents as seedIncidents } from "../../shared/seed.js";
 import { loadState, saveState } from "../../shared/cloudStore.js";
-import { createService, ok } from "../../shared/service.js";
+import { createService, fail, ok } from "../../shared/service.js";
 
 const port = Number(process.env.OPERATIONS_PORT || 7104);
 const { app, listen } = createService({ name: "operations", port, description: "Bitacora, checklist, agenda y alertas" });
@@ -45,11 +45,16 @@ app.get("/incidents", (req, res) => {
 });
 
 app.post("/incidents", (req, res) => {
+  if (!req.body.title || !req.body.description) return fail(res, "Titulo y detalle son obligatorios", 422);
   const incident = {
     id: nanoid(8),
     status: "open",
     priority: "media",
     createdAt: new Date().toISOString(),
+    createdBy: "Recepcion",
+    category: "general",
+    roomId: "",
+    actionRequired: "",
     ...req.body
   };
   incidents.unshift(incident);
@@ -59,12 +64,12 @@ app.post("/incidents", (req, res) => {
 
 app.patch("/incidents/:id/resolve", (req, res) => {
   const incident = incidents.find((item) => item.id === req.params.id);
-  if (incident) {
-    incident.status = "resolved";
-    incident.resolution = req.body.resolution || "Resuelto";
-    incident.resolvedAt = new Date().toISOString();
-    persistIncidents();
-  }
+  if (!incident) return fail(res, "Novedad no encontrada", 404);
+  incident.status = "resolved";
+  incident.resolution = req.body.resolution || "Completado";
+  incident.resolvedBy = req.body.resolvedBy || "Recepcion";
+  incident.resolvedAt = new Date().toISOString();
+  persistIncidents();
   ok(res, incident);
 });
 
