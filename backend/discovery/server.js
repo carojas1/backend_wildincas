@@ -3,6 +3,7 @@ import express from "express";
 
 const app = express();
 const port = Number(process.env.DISCOVERY_PORT || 7000);
+const ttlMs = Number(process.env.DISCOVERY_TTL_MS || 90000);
 const services = new Map();
 
 app.use(cors());
@@ -18,17 +19,25 @@ app.post("/register", (req, res) => {
 });
 
 app.get("/services", (_req, res) => {
-  res.json({ ok: true, data: [...services.values()] });
+  res.json({ ok: true, data: [...services.values()].map(withStatus) });
 });
 
 app.get("/services/:name", (req, res) => {
   const service = services.get(req.params.name);
   if (!service) return res.status(404).json({ ok: false, error: "service not registered" });
-  res.json({ ok: true, data: service });
+  const current = withStatus(service);
+  if (current.status !== "healthy") return res.status(503).json({ ok: false, error: "service heartbeat expired", data: current });
+  res.json({ ok: true, data: current });
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ service: "discovery", status: "ok", registered: services.size });
+  const registered = [...services.values()].map(withStatus);
+  res.json({ service: "discovery", status: "ok", registered: registered.length, healthy: registered.filter((item) => item.status === "healthy").length });
 });
+
+function withStatus(service) {
+  const ageMs = Date.now() - new Date(service.lastHeartbeat).getTime();
+  return { ...service, ageMs, status: ageMs <= ttlMs ? "healthy" : "stale" };
+}
 
 app.listen(port, () => console.log(`discovery listening on ${port}`));

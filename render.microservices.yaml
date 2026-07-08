@@ -1,0 +1,117 @@
+services:
+  - type: web
+    name: wildincas-discovery
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:discovery
+    envVars:
+      - key: DISCOVERY_PORT
+        value: "10000"
+
+  - type: web
+    name: wildincas-gateway
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:gateway
+    envVars:
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: UPSTREAM_TIMEOUT_MS
+        value: "12000"
+
+  - type: web
+    name: wildincas-auth
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:auth
+    envVars:
+      - key: AUTH_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-auth.onrender.com
+
+  - type: web
+    name: wildincas-rooms
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:rooms
+    envVars:
+      - key: ROOMS_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-rooms.onrender.com
+
+  - type: web
+    name: wildincas-guests
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:guests
+    envVars:
+      - key: GUESTS_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-guests.onrender.com
+
+  - type: web
+    name: wildincas-operations
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:operations
+    envVars:
+      - key: OPERATIONS_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-operations.onrender.com
+
+  - type: web
+    name: wildincas-finance
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:finance
+    envVars:
+      - key: FINANCE_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-finance.onrender.com
+
+  - type: web
+    name: wildincas-employees
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:employees
+    envVars:
+      - key: EMPLOYEES_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-employees.onrender.com
+
+  - type: web
+    name: wildincas-notifications
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:notifications
+    envVars:
+      - key: NOTIFICATIONS_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-notifications.onrender.com
+      - key: MAIL_HOST
+        value: smtp-relay.brevo.com
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_SECURE
+        value: "false"

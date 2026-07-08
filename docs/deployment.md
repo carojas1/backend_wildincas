@@ -41,6 +41,54 @@ SUPABASE_JWKS_URL=https://rfzqwfczhubbprdohamb.supabase.co/auth/v1/.well-known/j
 
 Render define `PORT` automaticamente. El API Gateway lo usa cuando existe.
 
+## Despliegue independiente por microservicio
+
+Para cumplir arquitectura de microservicios en produccion, usa un servicio Render por componente:
+
+1. Crear primero `wildincas-discovery`.
+2. Crear despues Auth, Rooms, Guests, Operations, Finance, Employees y Notifications.
+3. En cada microservicio configurar `DISCOVERY_URL=https://wildincas-discovery.onrender.com`.
+4. En cada microservicio configurar `SERVICE_URL` con su URL publica.
+5. Crear por ultimo `wildincas-gateway` y configurar `DISCOVERY_URL`.
+6. En Vercel usar el gateway: `VITE_API_URL=https://wildincas-gateway.onrender.com/api`.
+
+Scripts de arranque:
+
+```text
+npm run start:discovery
+npm run start:gateway
+npm run start:auth
+npm run start:rooms
+npm run start:guests
+npm run start:operations
+npm run start:finance
+npm run start:employees
+npm run start:notifications
+```
+
+`render.microservices.yaml` contiene un blueprint de referencia. En una cuenta gratis puede mantenerse el modo demo `npm start`, pero para la defensa se explica que cada servicio puede desplegarse y escalar de forma independiente con esos scripts.
+
+Variables comunes para servicios con datos:
+
+```text
+SUPABASE_URL=...
+SUPABASE_PUBLISHABLE_KEY=...
+SUPABASE_SECRET_KEY=...
+SUPABASE_JWKS_URL=...
+```
+
+Variables solo para Notifications:
+
+```text
+MAIL_HOST=smtp-relay.brevo.com
+MAIL_PORT=587
+MAIL_SECURE=false
+MAIL_USER=...
+MAIL_PASS=...
+MAIL_FROM=...
+APP_PUBLIC_URL=...
+```
+
 ## Brevo
 
 En Brevo usa correo transaccional SMTP:

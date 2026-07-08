@@ -4,6 +4,7 @@ import express from "express";
 const app = express();
 const port = Number(process.env.PORT || process.env.GATEWAY_PORT || 8080);
 const discoveryUrl = process.env.DISCOVERY_URL || "http://127.0.0.1:7000";
+const upstreamTimeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS || 12000);
 
 const routes = {
   "/api/auth": "auth",
@@ -43,11 +44,14 @@ for (const [path, serviceName] of Object.entries(routes)) {
       const upstreamPath = req.originalUrl.replace(path, "") || "/";
       const headers = { "Content-Type": "application/json" };
       if (req.headers.authorization) headers.Authorization = req.headers.authorization;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), upstreamTimeoutMs);
       const response = await fetch(`${target}${upstreamPath}`, {
         method: req.method,
         headers,
+        signal: controller.signal,
         body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body || {})
-      });
+      }).finally(() => clearTimeout(timeout));
       for (const header of ["content-disposition", "content-type"]) {
         const value = response.headers.get(header);
         if (value) res.setHeader(header, value);
@@ -55,7 +59,8 @@ for (const [path, serviceName] of Object.entries(routes)) {
       const buffer = Buffer.from(await response.arrayBuffer());
       res.status(response.status).send(buffer);
     } catch (error) {
-      res.status(503).json({ ok: false, error: { message: error.message } });
+      const timeout = error.name === "AbortError";
+      res.status(timeout ? 504 : 503).json({ ok: false, error: { message: timeout ? `${serviceName} timeout` : error.message, service: serviceName } });
     }
   });
 }

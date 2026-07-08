@@ -14,13 +14,33 @@ npm run dev
 
 ## Servicios
 
-- Auth y roles
-- Habitaciones
-- Huespedes
-- Operaciones y bitacora
-- Caja, movimientos y exportacion Excel
-- Empleados
-- Notificaciones y comprobantes
+- `discovery`: servicio descubridor con heartbeat y estado `healthy/stale`.
+- `api-gateway`: unica entrada HTTP para el frontend.
+- `auth`: usuarios, roles, sesiones y permisos por modulo.
+- `rooms`: habitaciones, precios, estados, limpieza y observaciones.
+- `guests`: huespedes, pagos, check-in y check-out.
+- `operations`: agenda, bitacora, incidencias y checklist.
+- `finance`: caja por turnos, movimientos, metodos de pago y exportacion Excel.
+- `employees`: empleados, turnos y modulos asignados.
+- `notifications`: comprobantes, bienvenida de empleados y SMTP Brevo.
+
+## Despliegue por microservicio
+
+Cada servicio tiene script independiente:
+
+```bash
+npm run start:discovery
+npm run start:gateway
+npm run start:auth
+npm run start:rooms
+npm run start:guests
+npm run start:operations
+npm run start:finance
+npm run start:employees
+npm run start:notifications
+```
+
+El archivo `render.microservices.yaml` muestra como separarlos en Render con `DISCOVERY_URL` y `SERVICE_URL`.
 
 ## Variables
 

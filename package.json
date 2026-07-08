@@ -15,6 +15,15 @@
     "dev:employees": "node backend/services/employees/server.js",
     "dev:notifications": "node backend/services/notifications/server.js",
     "start": "npm run dev",
+    "start:discovery": "node backend/discovery/server.js",
+    "start:gateway": "node backend/api-gateway/server.js",
+    "start:auth": "node backend/services/auth/server.js",
+    "start:rooms": "node backend/services/rooms/server.js",
+    "start:guests": "node backend/services/guests/server.js",
+    "start:operations": "node backend/services/operations/server.js",
+    "start:finance": "node backend/services/finance/server.js",
+    "start:employees": "node backend/services/employees/server.js",
+    "start:notifications": "node backend/services/notifications/server.js",
     "test": "node backend/tests/smoke.test.js"
   },
   "dependencies": {
