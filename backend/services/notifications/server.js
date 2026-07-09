@@ -18,6 +18,9 @@ function createTransport() {
     host: process.env.MAIL_HOST,
     port: Number(process.env.MAIL_PORT || 587),
     secure: String(process.env.MAIL_SECURE || "false") === "true",
+    connectionTimeout: Number(process.env.MAIL_TIMEOUT_MS || 5000),
+    greetingTimeout: Number(process.env.MAIL_TIMEOUT_MS || 5000),
+    socketTimeout: Number(process.env.MAIL_TIMEOUT_MS || 5000),
     auth: process.env.MAIL_USER ? { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS } : undefined
   });
 }
@@ -191,8 +194,11 @@ function baseEmail(title, body) {
 
 async function sendViaBrevoApi(message) {
   const sender = parseSender(process.env.MAIL_FROM || "Wild Incas <no-reply@wildincas.local>");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.BREVO_TIMEOUT_MS || 5000));
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
+    signal: controller.signal,
     headers: {
       "Content-Type": "application/json",
       "api-key": process.env.BREVO_API_KEY
@@ -204,7 +210,7 @@ async function sendViaBrevoApi(message) {
       htmlContent: message.html,
       textContent: message.text
     })
-  });
+  }).finally(() => clearTimeout(timeout));
   if (!response.ok) throw new Error(await response.text());
 }
 

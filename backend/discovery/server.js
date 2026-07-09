@@ -3,6 +3,7 @@ import express from "express";
 
 const app = express();
 const port = Number(process.env.DISCOVERY_PORT || 7000);
+const host = process.env.DISCOVERY_HOST || "127.0.0.1";
 const ttlMs = Number(process.env.DISCOVERY_TTL_MS || 90000);
 const services = new Map();
 
@@ -40,4 +41,4 @@ function withStatus(service) {
   return { ...service, ageMs, status: ageMs <= ttlMs ? "healthy" : "stale" };
 }
 
-app.listen(port, () => console.log(`discovery listening on ${port}`));
+app.listen(port, host, () => console.log(`discovery listening on ${host}:${port}`));

@@ -5,6 +5,7 @@ const DISCOVERY_URL = process.env.DISCOVERY_URL || "http://127.0.0.1:7000";
 
 export function createService({ name, port, description }) {
   const app = express();
+  const host = process.env.SERVICE_BIND_HOST || "127.0.0.1";
   app.use(cors());
   app.use(express.json({ limit: "1mb" }));
 
@@ -22,8 +23,8 @@ export function createService({ name, port, description }) {
   });
 
   function listen() {
-    app.listen(port, () => {
-      console.log(`${name} listening on ${port}`);
+    app.listen(port, host, () => {
+      console.log(`${name} listening on ${host}:${port}`);
       registerService(name, port, description);
       setInterval(() => registerService(name, port, description), 25000).unref();
     });
