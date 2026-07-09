@@ -24,24 +24,61 @@ app.get("/", (req, res) => {
 });
 
 app.post("/", (req, res) => {
+  const paid = parseMoney(req.body.paid);
   const guest = {
     id: nanoid(8),
     status: "active",
-    paid: parseMoney(req.body.paid),
+    paid,
     total: parseMoney(req.body.total),
-    ...req.body
+    payments: paid > 0 ? [{
+      id: nanoid(8),
+      amount: paid,
+      method: req.body.method || "Efectivo",
+      received: parseMoney(req.body.received || paid),
+      change: parseMoney(parseMoney(req.body.received || paid) - paid),
+      note: "Pago inicial / check-in",
+      createdAt: new Date().toISOString()
+    }] : [],
+    ...req.body,
+    paid
   };
   guests.unshift(guest);
   persist();
   ok(res, guest, 201);
 });
 
+app.patch("/:id", (req, res) => {
+  const guest = guests.find((item) => item.id === req.params.id);
+  if (!guest) return fail(res, "Huesped no encontrado", 404);
+  for (const field of ["name", "country", "documentType", "documentNumber", "email", "roomId", "roomType", "checkIn", "checkOut", "exitTime", "status", "notes"]) {
+    if (req.body[field] !== undefined) guest[field] = req.body[field];
+  }
+  for (const field of ["paid", "total"]) {
+    if (req.body[field] !== undefined) guest[field] = parseMoney(req.body[field]);
+  }
+  persist();
+  ok(res, guest);
+});
+
 app.post("/:id/payment", (req, res) => {
   const guest = guests.find((item) => item.id === req.params.id);
   if (!guest) return fail(res, "Huesped no encontrado", 404);
-  guest.paid = parseMoney(guest.paid + parseMoney(req.body.amount));
+  const amount = parseMoney(req.body.amount);
+  const received = parseMoney(req.body.received || amount);
+  const payment = {
+    id: nanoid(8),
+    amount,
+    method: req.body.method || "Efectivo",
+    received,
+    change: parseMoney(received - amount),
+    note: req.body.note || "Pago de hospedaje",
+    createdAt: new Date().toISOString()
+  };
+  guest.payments = Array.isArray(guest.payments) ? guest.payments : [];
+  guest.payments.unshift(payment);
+  guest.paid = parseMoney(guest.paid + amount);
   persist();
-  ok(res, guest);
+  ok(res, { guest, payment });
 });
 
 app.post("/:id/checkout", (req, res) => {
