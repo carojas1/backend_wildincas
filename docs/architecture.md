@@ -12,6 +12,20 @@ El backend esta dividido por dominio, no por pantalla:
 - Employees: empleados, turnos y permisos operativos.
 - Notifications: comprobantes por correo y registro local de envios.
 
+Cada dominio se ejecuta como servicio independiente, expone su propia API REST y mantiene su propia persistencia. En Supabase se usan tablas separadas por servicio para simular bases de datos independientes dentro del proveedor cloud:
+
+| Microservicio | Tabla privada cloud | API base |
+| --- | --- | --- |
+| Auth | `simot_auth` | `/api/auth` |
+| Rooms | `simot_rooms` | `/api/rooms` |
+| Guests | `simot_guests` | `/api/guests` |
+| Operations | `simot_operations` | `/api/operations` |
+| Finance | `simot_finance` | `/api/finance` |
+| Employees | `simot_employees` | `/api/employees` |
+| Notifications | `simot_notifications` | `/api/notifications` |
+
+La tabla `simot_state` queda solo como compatibilidad de migracion. El backend primero intenta leer/escribir en la tabla aislada del microservicio y, si aun no existe, usa el almacenamiento legado para no perder datos durante el despliegue.
+
 ## Componentes de microservicios
 
 ```mermaid
@@ -76,6 +90,15 @@ El API Gateway:
 - Propaga archivos como Excel usando `content-disposition`.
 - Tiene timeout de upstream con `UPSTREAM_TIMEOUT_MS`.
 - Devuelve errores por servicio para depurar sin tumbar el frontend.
+
+En Render el gateway es el unico servicio expuesto publicamente. Discovery y los microservicios internos escuchan en `127.0.0.1`, por eso el frontend no accede directo a habitaciones, caja o huespedes: siempre entra por el gateway.
+
+Endpoints de demostracion:
+
+- `GET /health`: muestra el gateway y los servicios registrados en Discovery.
+- `GET /api/rooms/summary`: llega a Rooms pasando por Gateway.
+- `GET /api/finance/movements`: llega a Finance pasando por Gateway.
+- `GET /api/notifications/receipts`: muestra comprobantes procesados por Notifications.
 
 ## Flujo principal
 
