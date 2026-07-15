@@ -117,3 +117,20 @@ services:
         value: "false"
       - key: BREVO_API_KEY
         sync: false
+
+  - type: web
+    name: wildincas-reservations
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:reservations
+    envVars:
+      - key: RESERVATIONS_PORT
+        value: "10000"
+      - key: DISCOVERY_URL
+        value: https://wildincas-discovery.onrender.com
+      - key: SERVICE_URL
+        value: https://wildincas-reservations.onrender.com
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false

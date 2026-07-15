@@ -7,6 +7,7 @@ const port = Number(process.env.ROOMS_PORT || 7102);
 const { app, listen } = createService({ name: "rooms", port, description: "Gestion de habitaciones, estados y limpieza" });
 let rooms = structuredClone(seedRooms);
 rooms = await loadState("rooms", seedRooms);
+const allowedStatuses = ["available", "occupied", "cleaning", "maintenance", "out_of_service"];
 
 function persist() {
   saveState("rooms", rooms);
@@ -35,7 +36,7 @@ app.post("/", (req, res) => {
     type: req.body.type || "Habitacion Privada",
     capacity: Number(req.body.capacity || 1),
     rate: Number(req.body.rate || 0),
-    status: req.body.status || "available",
+    status: allowedStatuses.includes(req.body.status) ? req.body.status : "available",
     lastCleaned: req.body.lastCleaned || new Date().toISOString().slice(0, 10),
     notes: req.body.notes || "",
     amenities: req.body.amenities || []
@@ -51,13 +52,14 @@ app.post("/", (req, res) => {
 app.patch("/:id", (req, res) => {
   const room = rooms.find((item) => item.id === req.params.id);
   if (!room) return fail(res, "Habitacion no encontrada", 404);
-  for (const field of ["type", "status", "lastCleaned", "notes", "guestId"]) {
+  for (const field of ["type", "status", "lastCleaned", "notes", "guestId", "housekeepingNotes"]) {
     if (req.body[field] !== undefined) room[field] = req.body[field];
   }
   for (const field of ["floor", "capacity", "rate"]) {
     if (req.body[field] !== undefined) room[field] = Number(req.body[field]);
   }
   if (room.rate < 0 || room.capacity < 1) return fail(res, "Capacidad y tarifa no validas", 422);
+  if (!allowedStatuses.includes(room.status)) return fail(res, "Estado de habitacion no valido", 422);
   persist();
   ok(res, room);
 });
@@ -65,8 +67,12 @@ app.patch("/:id", (req, res) => {
 app.patch("/:id/status", (req, res) => {
   const room = rooms.find((item) => item.id === req.params.id);
   if (!room) return fail(res, "Habitacion no encontrada", 404);
-  room.status = req.body.status || room.status;
+  if (!allowedStatuses.includes(req.body.status)) return fail(res, "Estado de habitacion no valido", 422);
+  room.status = req.body.status;
+  if (req.body.guestId !== undefined) room.guestId = req.body.guestId;
+  if (room.status !== "occupied") delete room.guestId;
   room.lastCleaned = room.status === "available" ? new Date().toISOString().slice(0, 10) : room.lastCleaned;
+  if (room.status === "available") room.housekeepingNotes = "";
   persist();
   ok(res, room);
 });
@@ -75,9 +81,19 @@ app.post("/:id/cleaning", (req, res) => {
   const room = rooms.find((item) => item.id === req.params.id);
   if (!room) return fail(res, "Habitacion no encontrada", 404);
   room.status = "cleaning";
-  room.notes = req.body.notes || room.notes || "";
+  delete room.guestId;
+  room.housekeepingNotes = req.body.notes || "Limpieza pendiente";
   persist();
   ok(res, room);
+});
+
+app.delete("/:id", (req, res) => {
+  const room = rooms.find((item) => item.id === req.params.id);
+  if (!room) return fail(res, "Habitacion no encontrada", 404);
+  if (["occupied", "cleaning"].includes(room.status)) return fail(res, "No se puede eliminar una habitacion ocupada o en limpieza", 409);
+  rooms = rooms.filter((item) => item.id !== req.params.id);
+  persist();
+  ok(res, { deleted: true, id: req.params.id });
 });
 
 listen();

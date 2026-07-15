@@ -25,6 +25,7 @@ OPERATIONS_PORT=7104
 FINANCE_PORT=7105
 EMPLOYEES_PORT=7106
 NOTIFICATIONS_PORT=7107
+RESERVATIONS_PORT=7108
 MAIL_HOST=smtp-relay.brevo.com
 MAIL_PORT=587
 MAIL_SECURE=false
@@ -47,7 +48,7 @@ Render define `PORT` automaticamente. El API Gateway lo usa cuando existe.
 Para cumplir arquitectura de microservicios en produccion, usa un servicio Render por componente:
 
 1. Crear primero `wildincas-discovery`.
-2. Crear despues Auth, Rooms, Guests, Operations, Finance, Employees y Notifications.
+2. Crear despues Auth, Rooms, Guests, Reservations, Operations, Finance, Employees y Notifications.
 3. En cada microservicio configurar `DISCOVERY_URL=https://wildincas-discovery.onrender.com`.
 4. En cada microservicio configurar `SERVICE_URL` con su URL publica.
 5. Crear por ultimo `wildincas-gateway` y configurar `DISCOVERY_URL`.
@@ -65,6 +66,7 @@ npm run start:operations
 npm run start:finance
 npm run start:employees
 npm run start:notifications
+npm run start:reservations
 ```
 
 `render.microservices.yaml` contiene un blueprint de referencia. En una cuenta gratis puede mantenerse el modo demo `npm start`, pero para la defensa se explica que cada servicio puede desplegarse y escalar de forma independiente con esos scripts.
@@ -103,11 +105,12 @@ En Brevo usa correo transaccional SMTP:
 
 Importante: `MAIL_PASS` debe ser la clave SMTP, no tu contrasena de Brevo ni una API key.
 
-Si Brevo bloquea SMTP por IP, configura tambien `BREVO_API_KEY`. Notifications intentara SMTP primero y, si falla, usara la API transaccional como respaldo. En Brevo revisa que el remitente de `MAIL_FROM` este verificado y que las restricciones de IP permitan llamadas desde Render.
+Configura `BREVO_API_KEY` como mecanismo principal. Notifications usa la API transaccional y conserva SMTP como respaldo. En Brevo verifica el remitente de `MAIL_FROM`; una clave valida no autoriza un remitente sin verificar.
 
 ## Flujos de correo implementados
 
-- Nota de venta / comprobante al huesped.
+- Confirmacion, modificacion y cancelacion de reserva.
+- Comprobante de check-in, pago y factura final de checkout.
 - Bienvenida de empleado con usuario y contrasena temporal.
 - Prueba de Brevo desde el modulo Usuarios.
 

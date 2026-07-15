@@ -19,6 +19,7 @@ npm run dev
 - `auth`: usuarios, roles, sesiones y permisos por modulo.
 - `rooms`: habitaciones, precios, estados, limpieza y observaciones.
 - `guests`: huespedes, pagos, check-in y check-out.
+- `reservations`: reservas, disponibilidad sin cruces, estadias, consumos, pagos y checkout.
 - `operations`: agenda, bitacora, incidencias y checklist.
 - `finance`: caja por turnos, movimientos, metodos de pago y exportacion Excel.
 - `employees`: empleados, turnos y modulos asignados.
@@ -38,6 +39,7 @@ npm run start:operations
 npm run start:finance
 npm run start:employees
 npm run start:notifications
+npm run start:reservations
 ```
 
 El archivo `render.microservices.yaml` muestra como separarlos en Render con `DISCOVERY_URL` y `SERVICE_URL`.

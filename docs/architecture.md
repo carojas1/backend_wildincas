@@ -6,7 +6,8 @@ El backend esta dividido por dominio, no por pantalla:
 
 - Auth: credenciales, sesiones y perfiles de acceso.
 - Rooms: inventario de habitaciones, estados, limpieza y disponibilidad.
-- Guests: huespedes, pagos, check-in y check-out.
+- Guests: compatibilidad del directorio historico de huespedes.
+- Reservations: huespedes, disponibilidad, reservas, estadias, consumos y checkout.
 - Operations: agenda diaria, bitacora, alertas y checklist de turno.
 - Finance: caja por turnos, movimientos, ingresos, gastos y reportes.
 - Employees: empleados, turnos y permisos operativos.
@@ -19,6 +20,7 @@ Cada dominio se ejecuta como servicio independiente, expone su propia API REST y
 | Auth | `simot_auth` | `/api/auth` |
 | Rooms | `simot_rooms` | `/api/rooms` |
 | Guests | `simot_guests` | `/api/guests` |
+| Reservations | `simot_reservations` | `/api/reservations` |
 | Operations | `simot_operations` | `/api/operations` |
 | Finance | `simot_finance` | `/api/finance` |
 | Employees | `simot_employees` | `/api/employees` |
@@ -35,6 +37,7 @@ flowchart LR
   Auth["Auth :7101"] --> Discovery
   Rooms["Rooms :7102"] --> Discovery
   Guests["Guests :7103"] --> Discovery
+  Reservations["Reservations :7108"] --> Discovery
   Operations["Operations :7104"] --> Discovery
   Finance["Finance :7105"] --> Discovery
   Employees["Employees :7106"] --> Discovery
@@ -42,6 +45,7 @@ flowchart LR
   Gateway --> Auth
   Gateway --> Rooms
   Gateway --> Guests
+  Gateway --> Reservations
   Gateway --> Operations
   Gateway --> Finance
   Gateway --> Employees
@@ -64,6 +68,7 @@ Scripts disponibles:
 | Auth | `npm run start:auth` | Usuarios, roles, sesiones y permisos | `AUTH_PORT` |
 | Rooms | `npm run start:rooms` | Habitaciones, estados, tarifas y notas | `ROOMS_PORT` |
 | Guests | `npm run start:guests` | Huespedes, pagos, check-in/check-out | `GUESTS_PORT` |
+| Reservations | `npm run start:reservations` | Reservas, cruces, estadias, consumos y checkout | `RESERVATIONS_PORT` |
 | Operations | `npm run start:operations` | Bitacora, agenda y checklist | `OPERATIONS_PORT` |
 | Finance | `npm run start:finance` | Caja, movimientos, reportes Excel | `FINANCE_PORT` |
 | Employees | `npm run start:employees` | Empleados, turnos y modulos asignados | `EMPLOYEES_PORT` |
@@ -99,6 +104,7 @@ Endpoints de demostracion:
 - `GET /api/rooms/summary`: llega a Rooms pasando por Gateway.
 - `GET /api/finance/movements`: llega a Finance pasando por Gateway.
 - `GET /api/notifications/receipts`: muestra comprobantes procesados por Notifications.
+- `GET /api/reservations/availability`: valida disponibilidad por rango de fechas.
 
 ## Flujo principal
 
@@ -106,7 +112,8 @@ Endpoints de demostracion:
 2. Cada microservicio se registra en `discovery` con nombre y URL.
 3. El frontend llama solo al `api-gateway`.
 4. El gateway resuelve el servicio en discovery y reenvia la peticion.
-5. Notifications prepara comprobantes por correo; si no hay SMTP, queda registrado en modo local.
+5. Reservations coordina Rooms, Finance y Notifications sin escribir en sus bases privadas.
+6. Notifications guarda cada correo con clave idempotente, reintenta fallos y evita duplicados.
 
 ## Cronograma aplicado
 

@@ -93,6 +93,21 @@ services:
     depends_on:
       - discovery
 
+  reservations:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: npm run dev:reservations
+    environment:
+      DISCOVERY_URL: http://discovery:7000
+      SERVICE_URL: http://reservations:7108
+      RESERVATIONS_PORT: 7108
+    depends_on:
+      - discovery
+      - rooms
+      - finance
+      - notifications
+
   gateway:
     build:
       context: .
@@ -112,6 +127,7 @@ services:
       - finance
       - employees
       - notifications
+      - reservations
 
   frontend:
     build:

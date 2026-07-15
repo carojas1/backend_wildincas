@@ -11,10 +11,22 @@ const routes = {
   "/api/auth": "auth",
   "/api/rooms": "rooms",
   "/api/guests": "guests",
+  "/api/reservations": "reservations",
   "/api/operations": "operations",
   "/api/finance": "finance",
   "/api/employees": "employees",
   "/api/notifications": "notifications"
+};
+
+const routeModules = {
+  auth: "users",
+  rooms: "rooms",
+  guests: "guests",
+  reservations: "reservations",
+  operations: "logbook",
+  finance: "income",
+  employees: "employees",
+  notifications: "notifications"
 };
 
 const cache = new Map();
@@ -46,6 +58,10 @@ app.get("/health", async (_req, res) => {
 for (const [path, serviceName] of Object.entries(routes)) {
   app.use(path, async (req, res) => {
     try {
+      const authorization = await authorize(req, path, serviceName);
+      if (!authorization.allowed) {
+        return res.status(authorization.status).json({ ok: false, error: { message: authorization.message } });
+      }
       const target = await resolveService(serviceName);
       const upstreamPath = req.originalUrl.replace(path, "") || "/";
       const headers = { "Content-Type": "application/json" };
@@ -69,6 +85,39 @@ for (const [path, serviceName] of Object.entries(routes)) {
       res.status(timeout ? 504 : 503).json({ ok: false, error: { message: timeout ? `${serviceName} timeout` : error.message, service: serviceName } });
     }
   });
+}
+
+async function authorize(req, path, serviceName) {
+  const subpath = req.originalUrl.replace(path, "").split("?")[0] || "/";
+  if (serviceName === "auth" && req.method === "POST" && subpath === "/login") return { allowed: true };
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (!token) return { allowed: false, status: 401, message: "Debes iniciar sesion" };
+  try {
+    const authUrl = await resolveService("auth");
+    const response = await fetch(`${authUrl}/me`, { headers: { Authorization: `Bearer ${token}` } });
+    const payload = await response.json();
+    if (!response.ok || payload.ok === false) return { allowed: false, status: 401, message: "La sesion ya no es valida" };
+    const user = payload.data;
+    const modules = Array.isArray(user.modules) ? user.modules : [];
+    if (modules.includes("all")) return { allowed: true, user };
+    if (serviceName === "auth" && ["/me", "/logout"].includes(subpath)) return { allowed: true, user };
+    const required = requiredModule(serviceName, subpath);
+    return modules.includes(required)
+      ? { allowed: true, user }
+      : { allowed: false, status: 403, message: `Tu rol no permite usar el modulo ${required}` };
+  } catch (error) {
+    return { allowed: false, status: 503, message: `No se pudo validar el acceso: ${error.message}` };
+  }
+}
+
+function requiredModule(serviceName, subpath) {
+  if (serviceName === "finance") {
+    if (subpath.startsWith("/shifts") || subpath === "/daily") return "cash";
+    if (subpath.startsWith("/invoices") || subpath.startsWith("/payments")) return "billing";
+  }
+  if (serviceName === "operations" && subpath.startsWith("/checklist")) return "cash";
+  if (serviceName === "auth") return "users";
+  return routeModules[serviceName];
 }
 
 app.listen(port, host, () => console.log(`api-gateway listening on ${host}:${port}`));

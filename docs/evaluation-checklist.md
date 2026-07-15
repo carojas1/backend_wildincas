@@ -5,7 +5,7 @@
 Funcionalidades clave separadas:
 
 - Gestion de habitaciones: inventario, tarifas, disponibilidad, limpieza y estados.
-- Gestion de huespedes: check-in, check-out, pagos, historial y datos del cliente.
+- Gestion de reservas: disponibilidad sin cruces, datos del huesped, check-in, consumos y checkout.
 - Finanzas: caja, movimientos, ingresos, gastos y exportacion Excel.
 - Empleados: cuentas, roles, turnos y permisos por modulo.
 - Operaciones: bitacora, agenda, checklist y mantenimiento.
@@ -17,6 +17,7 @@ Cada funcionalidad vive en un servicio independiente:
 
 - `backend/services/rooms/server.js`
 - `backend/services/guests/server.js`
+- `backend/services/reservations/server.js`
 - `backend/services/finance/server.js`
 - `backend/services/employees/server.js`
 - `backend/services/operations/server.js`
@@ -29,6 +30,7 @@ Persistencia separada en Supabase:
 
 - `simot_rooms`
 - `simot_guests`
+- `simot_reservations`
 - `simot_finance`
 - `simot_employees`
 - `simot_operations`
@@ -52,6 +54,7 @@ API Gateway:
   - `/api/auth`
   - `/api/rooms`
   - `/api/guests`
+  - `/api/reservations`
   - `/api/operations`
   - `/api/finance`
   - `/api/employees`

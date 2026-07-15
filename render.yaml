@@ -24,6 +24,8 @@ services:
         value: "7106"
       - key: NOTIFICATIONS_PORT
         value: "7107"
+      - key: RESERVATIONS_PORT
+        value: "7108"
       - key: MAIL_HOST
         value: smtp-relay.brevo.com
       - key: MAIL_PORT

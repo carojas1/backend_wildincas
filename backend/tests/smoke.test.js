@@ -6,6 +6,7 @@ const commands = [
   ["auth", "backend/services/auth/server.js", 7101],
   ["rooms", "backend/services/rooms/server.js", 7102],
   ["guests", "backend/services/guests/server.js", 7103],
+  ["reservations", "backend/services/reservations/server.js", 7108],
   ["operations", "backend/services/operations/server.js", 7104],
   ["finance", "backend/services/finance/server.js", 7105],
   ["employees", "backend/services/employees/server.js", 7106],
@@ -57,9 +58,9 @@ async function main() {
     children.push(child);
   }
 
-  const health = await waitForGatewayServices(7);
+  const health = await waitForGatewayServices(8);
   assert.equal(health.status, "ok");
-  assert.ok(health.services.length >= 7);
+  assert.ok(health.services.length >= 8);
 
   const login = await readJson("http://127.0.0.1:8080/api/auth/login", {
     method: "POST",
@@ -67,30 +68,61 @@ async function main() {
     body: JSON.stringify({ username: "apolo", password: "admin123" })
   });
   assert.ok(login.data.token);
+  const authHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${login.data.token}` };
 
-  const rooms = await readJson("http://127.0.0.1:8080/api/rooms");
+  const rooms = await readJson("http://127.0.0.1:8080/api/rooms", { headers: authHeaders });
   assert.ok(rooms.data.length >= 8);
 
-  const guests = await readJson("http://127.0.0.1:8080/api/guests");
-  assert.ok(guests.data.some((guest) => guest.name === "James Wilson"));
-
-  const receipt = await readJson("http://127.0.0.1:8080/api/notifications/receipts", {
+  const reservationResult = await readJson("http://127.0.0.1:8080/api/reservations/reservations", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to: "test@wildincas.local", guestName: "Test", amount: 25, concept: "Prueba" })
+    headers: authHeaders,
+    body: JSON.stringify({
+      name: "Huesped Integracion",
+      documentType: "Cedula",
+      documentNumber: "TEST-001",
+      email: "test@example.com",
+      roomId: "202",
+      roomType: "Habitacion Privada",
+      checkIn: "2027-01-10",
+      checkOut: "2027-01-12",
+      nightlyRate: 35,
+      action: "check_in"
+    })
   });
-  assert.equal(receipt.data.status, "logged");
+  const reservation = reservationResult.data.reservation;
+  assert.equal(reservation.total, 70);
+
+  await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/charges`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ category: "Lavanderia", description: "Servicio de lavanderia", quantity: 2, unitPrice: 4 })
+  });
+
+  const paymentResult = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/payments`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ amount: 30, received: 40, method: "Efectivo", idempotencyKey: `smoke-payment-${reservation.id}` })
+  });
+  assert.equal(paymentResult.data.payment.change, 10);
+
+  const checkout = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/checkout`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ actor: "Prueba automatizada" })
+  });
+  assert.equal(checkout.data.invoice.total, 78);
+  assert.equal(checkout.data.invoice.balance, 48);
 
   const welcome = await readJson("http://127.0.0.1:8080/api/notifications/employees/welcome", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders,
     body: JSON.stringify({ to: "empleado@wildincas.local", name: "Empleado Test", username: "etest", password: "Temp123", role: "Recepcion" })
   });
-  assert.equal(welcome.data.type, "employee-welcome");
+  assert.equal(welcome.data.eventType, "employee-welcome");
 
-  const exportResponse = await fetch("http://127.0.0.1:8080/api/finance/export.xls");
+  const exportResponse = await fetch("http://127.0.0.1:8080/api/finance/export.xlsx", { headers: authHeaders });
   assert.equal(exportResponse.ok, true);
-  assert.ok((await exportResponse.text()).includes("Wild Incas - Reporte contable"));
+  assert.ok((await exportResponse.arrayBuffer()).byteLength > 5000);
 
   console.log("Smoke test passed");
 }
