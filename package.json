@@ -15,7 +15,7 @@
     "dev:finance": "node backend/services/finance/server.js",
     "dev:employees": "node backend/services/employees/server.js",
     "dev:notifications": "node backend/services/notifications/server.js",
-    "start": "npm run dev",
+    "start": "node backend/start.js",
     "start:discovery": "node backend/discovery/server.js",
     "start:gateway": "node backend/api-gateway/server.js",
     "start:auth": "node backend/services/auth/server.js",
