@@ -27,28 +27,30 @@ function persistUsers() {
   saveState("auth_users", users);
 }
 
-const sessions = new Map();
+const tokenSecret = process.env.AUTH_TOKEN_SECRET || process.env.SUPABASE_SECRET_KEY || "simot-development-token-secret";
+const tokenTtlMs = Number(process.env.AUTH_TOKEN_TTL_MS || 8 * 60 * 60 * 1000);
+const revokedTokens = new Set();
 
 app.post("/login", (req, res) => {
   const { username, password } = req.body;
   const user = users.find((item) => item.username === username && verifyPassword(item, password) && item.status === "active");
   if (!user) return fail(res, "Credenciales invalidas", 401);
-  const token = crypto.randomBytes(24).toString("hex");
-  sessions.set(token, { userId: user.id, createdAt: new Date().toISOString() });
+  const token = issueToken(user.id);
   ok(res, { token, user: sanitize(user) });
 });
 
 app.get("/me", (req, res) => {
   const token = (req.headers.authorization || "").replace("Bearer ", "");
-  const session = sessions.get(token);
+  const session = verifyToken(token);
   if (!session) return fail(res, "Sesion no encontrada", 401);
   const user = users.find((item) => item.id === session.userId);
+  if (!user || user.status !== "active") return fail(res, "Usuario inactivo o inexistente", 401);
   ok(res, sanitize(user));
 });
 
 app.post("/logout", (req, res) => {
   const token = (req.headers.authorization || "").replace("Bearer ", "");
-  sessions.delete(token);
+  if (token) revokedTokens.add(token);
   ok(res, { loggedOut: true });
 });
 
@@ -118,6 +120,27 @@ function verifyPassword(user, password) {
     return actual.length === target.length && crypto.timingSafeEqual(actual, target);
   }
   return user.password === password;
+}
+
+function issueToken(userId) {
+  const payload = Buffer.from(JSON.stringify({ userId, exp: Date.now() + tokenTtlMs })).toString("base64url");
+  const signature = crypto.createHmac("sha256", tokenSecret).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function verifyToken(token) {
+  if (!token || revokedTokens.has(token)) return null;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+  const expected = crypto.createHmac("sha256", tokenSecret).update(payload).digest();
+  const actual = Buffer.from(signature, "base64url");
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return session.userId && Number(session.exp) > Date.now() ? session : null;
+  } catch {
+    return null;
+  }
 }
 
 listen();

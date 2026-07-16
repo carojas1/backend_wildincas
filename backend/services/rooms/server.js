@@ -5,12 +5,8 @@ import { createService, fail, ok } from "../../shared/service.js";
 
 const port = Number(process.env.ROOMS_PORT || 7102);
 const { app, listen } = createService({ name: "rooms", port, description: "Gestion de habitaciones, estados y limpieza" });
-const configuredRoomIds = new Set(seedRooms.map((room) => room.id));
 const storedRooms = await loadState("rooms", seedRooms);
-let rooms = storedRooms.filter((room) => configuredRoomIds.has(room.id));
-for (const seedRoom of seedRooms) {
-  if (!rooms.some((room) => room.id === seedRoom.id)) rooms.push(structuredClone(seedRoom));
-}
+let rooms = Array.isArray(storedRooms) && storedRooms.length ? storedRooms : structuredClone(seedRooms);
 const allowedStatuses = ["available", "occupied", "cleaning", "maintenance", "out_of_service"];
 saveState("rooms", rooms);
 
@@ -35,7 +31,6 @@ app.get("/summary", (_req, res) => {
 });
 
 app.post("/", (req, res) => {
-  if (rooms.length >= seedRooms.length) return fail(res, `El hotel ya tiene configuradas sus ${seedRooms.length} habitaciones`, 409);
   const room = {
     id: String(req.body.id || nanoid(6)).trim(),
     floor: Number(req.body.floor || 1),
