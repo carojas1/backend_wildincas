@@ -30,15 +30,36 @@ const routeModules = {
 };
 
 const cache = new Map();
+const localPorts = {
+  auth: process.env.AUTH_PORT || 7101,
+  rooms: process.env.ROOMS_PORT || 7102,
+  guests: process.env.GUESTS_PORT || 7103,
+  operations: process.env.OPERATIONS_PORT || 7104,
+  finance: process.env.FINANCE_PORT || 7105,
+  employees: process.env.EMPLOYEES_PORT || 7106,
+  notifications: process.env.NOTIFICATIONS_PORT || 7107,
+  reservations: process.env.RESERVATIONS_PORT || 7108
+};
 
 async function resolveService(name) {
   const cached = cache.get(name);
   if (cached && Date.now() - cached.at < 15000) return cached.url;
-  const response = await fetch(`${discoveryUrl}/services/${name}`);
-  if (!response.ok) throw new Error(`${name} is not registered`);
-  const payload = await response.json();
-  cache.set(name, { url: payload.data.url, at: Date.now() });
-  return payload.data.url;
+  try {
+    const response = await fetch(`${discoveryUrl}/services/${name}`);
+    if (response.ok) {
+      const payload = await response.json();
+      cache.set(name, { url: payload.data.url, at: Date.now() });
+      return payload.data.url;
+    }
+  } catch {
+    // The local fallback below keeps a single-instance deployment available while discovery restarts.
+  }
+  if (String(process.env.LOCAL_SERVICE_FALLBACK || "true") !== "false" && localPorts[name]) {
+    const url = `http://127.0.0.1:${localPorts[name]}`;
+    cache.set(name, { url, at: Date.now() });
+    return url;
+  }
+  throw new Error(`${name} is not registered`);
 }
 
 app.use(cors({

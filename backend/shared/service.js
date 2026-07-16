@@ -3,6 +3,16 @@ import express from "express";
 
 const DISCOVERY_URL = process.env.DISCOVERY_URL || "http://127.0.0.1:7000";
 const serviceCache = new Map();
+const localPorts = {
+  auth: process.env.AUTH_PORT || 7101,
+  rooms: process.env.ROOMS_PORT || 7102,
+  guests: process.env.GUESTS_PORT || 7103,
+  operations: process.env.OPERATIONS_PORT || 7104,
+  finance: process.env.FINANCE_PORT || 7105,
+  employees: process.env.EMPLOYEES_PORT || 7106,
+  notifications: process.env.NOTIFICATIONS_PORT || 7107,
+  reservations: process.env.RESERVATIONS_PORT || 7108
+};
 
 export function createService({ name, port, description }) {
   const app = express();
@@ -55,13 +65,25 @@ export async function registerService(name, port, description = "") {
 export async function resolveService(name) {
   const cached = serviceCache.get(name);
   if (cached && Date.now() - cached.at < 10000) return cached.url;
-  const response = await fetch(`${DISCOVERY_URL}/services/${name}`);
-  if (!response.ok) throw new Error(`El servicio ${name} no esta disponible`);
-  const payload = await response.json();
-  const url = payload.data?.url;
-  if (!url) throw new Error(`El servicio ${name} no publico una URL`);
-  serviceCache.set(name, { url, at: Date.now() });
-  return url;
+  try {
+    const response = await fetch(`${DISCOVERY_URL}/services/${name}`);
+    if (response.ok) {
+      const payload = await response.json();
+      const url = payload.data?.url;
+      if (url) {
+        serviceCache.set(name, { url, at: Date.now() });
+        return url;
+      }
+    }
+  } catch {
+    // A colocated Render deployment can continue through the known local service port.
+  }
+  if (String(process.env.LOCAL_SERVICE_FALLBACK || "true") !== "false" && localPorts[name]) {
+    const url = `http://127.0.0.1:${localPorts[name]}`;
+    serviceCache.set(name, { url, at: Date.now() });
+    return url;
+  }
+  throw new Error(`El servicio ${name} no esta disponible`);
 }
 
 export async function serviceRequest(name, path, options = {}) {
