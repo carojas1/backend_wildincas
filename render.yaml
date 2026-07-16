@@ -1,49 +1,5 @@
 services:
   - type: web
-    name: backend-wildincas
-    runtime: node
-    plan: starter
-    buildCommand: npm install
-    startCommand: npm start
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DISCOVERY_PORT
-        value: "7000"
-      - key: AUTH_PORT
-        value: "7101"
-      - key: ROOMS_PORT
-        value: "7102"
-      - key: GUESTS_PORT
-        value: "7103"
-      - key: OPERATIONS_PORT
-        value: "7104"
-      - key: FINANCE_PORT
-        value: "7105"
-      - key: EMPLOYEES_PORT
-        value: "7106"
-      - key: NOTIFICATIONS_PORT
-        value: "7107"
-      - key: RESERVATIONS_PORT
-        value: "7108"
-      - key: MAIL_HOST
-        value: smtp-relay.brevo.com
-      - key: MAIL_PORT
-        value: "587"
-      - key: MAIL_SECURE
-        value: "false"
-      - key: BREVO_API_KEY
-        sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_PUBLISHABLE_KEY
-        sync: false
-      - key: SUPABASE_SECRET_KEY
-        sync: false
-      - key: SUPABASE_JWKS_URL
-        sync: false
-
-  - type: web
     name: wildincas-feign-integration
     runtime: docker
     plan: free
