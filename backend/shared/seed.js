@@ -3,8 +3,7 @@ export const rooms = [
   { id: "102", floor: 1, type: "Dormitorio Compartido", capacity: 4, rate: 15, status: "occupied", lastCleaned: "2026-05-22", guestId: "g1" },
   { id: "201", floor: 2, type: "Habitacion Privada", capacity: 2, rate: 35, status: "cleaning", lastCleaned: "2026-05-25", notes: "Revisar grifo del bano" },
   { id: "202", floor: 2, type: "Habitacion Privada", capacity: 2, rate: 35, status: "available", lastCleaned: "2026-05-26" },
-  { id: "203", floor: 2, type: "Suite Doble", capacity: 2, rate: 55, status: "occupied", lastCleaned: "2026-05-24", guestId: "g2", notes: "Solicito desayuno temprano" },
-  { id: "301", floor: 3, type: "Suite Doble", capacity: 2, rate: 55, status: "available", lastCleaned: "2026-05-26" },
+  { id: "203", floor: 2, type: "Suite Doble", capacity: 2, rate: 55, status: "occupied", lastCleaned: "2026-05-24", guestId: "g2", notes: "" },
   { id: "302", floor: 3, type: "Habitacion Privada", capacity: 2, rate: 35, status: "cleaning", lastCleaned: "2026-05-25" },
   { id: "401", floor: 4, type: "Suite Premium", capacity: 2, rate: 95, status: "occupied", lastCleaned: "2026-05-26", guestId: "g4" }
 ];
@@ -24,7 +23,7 @@ export const employees = [
 
 export const incidents = [
   { id: "n1", title: "Revisar grifo del bano", description: "Habitacion 201 reporta goteo leve.", category: "mantenimiento", status: "open", priority: "media", createdAt: "2026-05-27T08:10:00.000Z", createdBy: "Valentina Mora" },
-  { id: "n2", title: "Huesped solicita desayuno temprano", description: "Carlos Ruiz requiere salida con desayuno 06:30.", category: "huesped", status: "open", priority: "baja", createdAt: "2026-05-27T10:30:00.000Z", createdBy: "Laura Sanchez" }
+  { id: "n2", title: "Llave pendiente de devolucion", description: "Verificar la entrega de la llave de la habitacion 203 al finalizar la estadia.", category: "huesped", status: "open", priority: "media", createdAt: "2026-05-27T10:30:00.000Z", createdBy: "Laura Sanchez", roomId: "203", actionRequired: "Confirmar devolucion durante el checkout" }
 ];
 
 export const movements = [

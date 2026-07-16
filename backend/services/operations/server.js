@@ -7,6 +7,10 @@ const port = Number(process.env.OPERATIONS_PORT || 7104);
 const { app, listen } = createService({ name: "operations", port, description: "Bitacora, checklist, agenda y alertas" });
 let incidents = structuredClone(seedIncidents);
 incidents = await loadState("incidents", seedIncidents);
+incidents = incidents.map((incident) => incident.id === "n2" && /desayuno/i.test(incident.title || "")
+  ? structuredClone(seedIncidents.find((item) => item.id === "n2"))
+  : incident);
+saveState("incidents", incidents);
 
 let checklist = [
   "Contar efectivo en caja",

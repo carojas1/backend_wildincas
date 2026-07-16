@@ -134,3 +134,12 @@ services:
         sync: false
       - key: SUPABASE_SECRET_KEY
         sync: false
+
+  - type: web
+    name: wildincas-feign-integration
+    runtime: docker
+    rootDir: spring-feign-integration
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: RESERVATIONS_API_URL
+        value: https://wildincas-gateway.onrender.com/api/reservations

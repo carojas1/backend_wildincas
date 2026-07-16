@@ -1,0 +1,23 @@
+server:
+  port: ${PORT:7110}
+
+spring:
+  application:
+    name: hotel-feign-integration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+hotel:
+  reservations-url: ${RESERVATIONS_API_URL:http://127.0.0.1:8080/api/reservations}
+
+spring.cloud.openfeign:
+  client:
+    config:
+      reservations-client:
+        connectTimeout: 5000
+        readTimeout: 10000
+        loggerLevel: basic

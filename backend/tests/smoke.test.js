@@ -71,7 +71,7 @@ async function main() {
   const authHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${login.data.token}` };
 
   const rooms = await readJson("http://127.0.0.1:8080/api/rooms", { headers: authHeaders });
-  assert.ok(rooms.data.length >= 8);
+  assert.equal(rooms.data.length, 7);
 
   const reservationResult = await readJson("http://127.0.0.1:8080/api/reservations/reservations", {
     method: "POST",
