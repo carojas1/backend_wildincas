@@ -13,6 +13,7 @@ const { app, listen } = createService({
 const loaded = await loadState("notifications", { jobs: [] });
 let state = { jobs: Array.isArray(loaded) ? loaded.map(normalizeLegacy) : Array.isArray(loaded?.jobs) ? loaded.jobs : [] };
 let retryRunning = false;
+const inFlight = new Set();
 
 function normalizeLegacy(item) {
   return {
@@ -54,7 +55,7 @@ async function sendViaBrevoApi(message) {
   const from = sender();
   if (!from.email) throw new Error("MAIL_FROM no contiene un remitente valido");
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.BREVO_TIMEOUT_MS || 8000));
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.BREVO_TIMEOUT_MS || 5000));
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
@@ -69,7 +70,10 @@ async function sendViaBrevoApi(message) {
         headers: { "X-SIMOT-Event-ID": message.idempotencyKey }
       })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || body.code || `Brevo API respondio ${response.status}`);
+    }
     return { provider: "brevo-api", response: await response.json().catch(() => ({})) };
   } finally {
     clearTimeout(timeout);
@@ -98,7 +102,14 @@ async function attempt(job) {
   persist();
   const message = buildMessage(job.eventType, job.to, job.payload, job.idempotencyKey);
   const errors = [];
-  const providers = process.env.BREVO_API_KEY ? [sendViaBrevoApi, sendViaSmtp] : [sendViaSmtp, sendViaBrevoApi];
+  const providers = configuredProviders();
+  if (!providers.length) {
+    job.status = "configuration_error";
+    job.error = "Configura BREVO_API_KEY en Render y verifica MAIL_FROM en Brevo";
+    job.nextAttemptAt = null;
+    persist();
+    return job;
+  }
   for (const provider of providers) {
     try {
       const result = await provider(message);
@@ -123,6 +134,41 @@ async function attempt(job) {
   return job;
 }
 
+function configuredProviders() {
+  const provider = selectedProvider();
+  const allowSmtpFallback = String(process.env.MAIL_SMTP_FALLBACK || "false") === "true";
+  const apiReady = Boolean(process.env.BREVO_API_KEY);
+  const smtpReady = Boolean(process.env.MAIL_HOST && process.env.MAIL_USER && process.env.MAIL_PASS);
+  const providers = [];
+  if (provider === "brevo-api" && apiReady) providers.push(sendViaBrevoApi);
+  if (provider === "smtp" && smtpReady) providers.push(sendViaSmtp);
+  if (allowSmtpFallback && provider !== "smtp" && smtpReady) providers.push(sendViaSmtp);
+  if (allowSmtpFallback && provider !== "brevo-api" && apiReady) providers.push(sendViaBrevoApi);
+  return providers;
+}
+
+function selectedProvider() {
+  return String(process.env.MAIL_PROVIDER || "brevo-api").toLowerCase();
+}
+
+function scheduleAttempt(job) {
+  if (inFlight.has(job.id)) return;
+  inFlight.add(job.id);
+  const task = setImmediate(async () => {
+    try {
+      await attempt(job);
+    } catch (error) {
+      job.status = "pending_retry";
+      job.error = error.message;
+      job.nextAttemptAt = new Date(Date.now() + 60000).toISOString();
+      persist();
+    } finally {
+      inFlight.delete(job.id);
+    }
+  });
+  task.unref();
+}
+
 async function enqueue({ eventType, to, idempotencyKey, payload }) {
   const existing = state.jobs.find((item) => item.idempotencyKey === idempotencyKey);
   if (existing) return existing;
@@ -142,7 +188,8 @@ async function enqueue({ eventType, to, idempotencyKey, payload }) {
   };
   state.jobs.unshift(job);
   persist();
-  return attempt(job);
+  scheduleAttempt(job);
+  return job;
 }
 
 app.post("/events", async (req, res) => {
@@ -150,7 +197,7 @@ app.post("/events", async (req, res) => {
   if (!eventType || !to || !idempotencyKey) return fail(res, "Evento, correo e identificador unico son obligatorios", 422);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return fail(res, "Correo del destinatario no valido", 422);
   const job = await enqueue({ eventType, to, idempotencyKey, payload });
-  ok(res, job, job.attempts === 1 ? 201 : 200);
+  ok(res, job, 202);
 });
 
 app.post("/receipts", async (req, res) => {
@@ -202,19 +249,27 @@ app.post("/events/:id/retry", async (req, res) => {
   if (!job) return fail(res, "Correo no encontrado", 404);
   job.status = "queued";
   job.nextAttemptAt = now();
-  const result = await attempt(job);
-  ok(res, result);
+  job.error = "";
+  persist();
+  scheduleAttempt(job);
+  ok(res, job, 202);
 });
 
 app.get("/config", (_req, res) => ok(res, {
+  provider: selectedProvider(),
+  ready: configuredProviders().length > 0,
   smtpConfigured: Boolean(process.env.MAIL_HOST && process.env.MAIL_USER && process.env.MAIL_PASS),
   apiConfigured: Boolean(process.env.BREVO_API_KEY),
+  smtpFallback: String(process.env.MAIL_SMTP_FALLBACK || "false") === "true",
+  recommendation: process.env.BREVO_API_KEY
+    ? "Brevo API HTTPS activa"
+    : "Agrega BREVO_API_KEY en Render; SMTP no funciona en instancias Free",
   from: process.env.MAIL_FROM || "",
   queue: {
     total: state.jobs.length,
     sent: state.jobs.filter((item) => item.status === "sent").length,
     pending: state.jobs.filter((item) => ["queued", "sending", "pending_retry"].includes(item.status)).length,
-    failed: state.jobs.filter((item) => item.status === "failed").length
+    failed: state.jobs.filter((item) => ["failed", "configuration_error"].includes(item.status)).length
   }
 }));
 
@@ -223,7 +278,7 @@ async function retryPending() {
   retryRunning = true;
   try {
     const due = state.jobs.filter((item) => item.status === "pending_retry" && item.nextAttemptAt && item.nextAttemptAt <= now()).slice(0, 5);
-    for (const job of due) await attempt(job);
+    for (const job of due) scheduleAttempt(job);
   } finally {
     retryRunning = false;
   }
@@ -344,5 +399,12 @@ function stripHtml(value) {
   return String(value || "").replace(/<[^>]*>/g, "");
 }
 
+for (const job of state.jobs) {
+  if (job.status === "sending") {
+    job.status = "pending_retry";
+    job.nextAttemptAt = now();
+  }
+}
+setTimeout(retryPending, 1500).unref();
 setInterval(retryPending, 60000).unref();
 listen();

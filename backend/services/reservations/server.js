@@ -171,7 +171,7 @@ async function queueNotification(eventType, reservation, extra = {}) {
   try {
     return await serviceRequest("notifications", "/events", {
       method: "POST",
-      timeoutMs: 6500,
+      timeoutMs: 1500,
       body: {
         eventType,
         to: guest.email,
