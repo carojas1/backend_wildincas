@@ -61,6 +61,24 @@ create table if not exists public.simot_reservations (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.simot_auth_users (
+  id text primary key default 'state',
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.simot_incidents (
+  id text primary key default 'state',
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.simot_checklist (
+  id text primary key default 'state',
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
 alter table public.simot_auth enable row level security;
 alter table public.simot_rooms enable row level security;
 alter table public.simot_guests enable row level security;
@@ -69,6 +87,9 @@ alter table public.simot_finance enable row level security;
 alter table public.simot_employees enable row level security;
 alter table public.simot_notifications enable row level security;
 alter table public.simot_reservations enable row level security;
+alter table public.simot_auth_users enable row level security;
+alter table public.simot_incidents enable row level security;
+alter table public.simot_checklist enable row level security;
 
 -- Optional migration from the initial shared table to isolated service tables.
 insert into public.simot_auth (id, value, updated_at)
@@ -101,4 +122,16 @@ on conflict (id) do nothing;
 
 insert into public.simot_reservations (id, value, updated_at)
 select 'state', value, updated_at from public.simot_state where key = 'reservations'
+on conflict (id) do nothing;
+
+insert into public.simot_auth_users (id, value, updated_at)
+select 'state', value, updated_at from public.simot_state where key = 'auth_users'
+on conflict (id) do nothing;
+
+insert into public.simot_incidents (id, value, updated_at)
+select 'state', value, updated_at from public.simot_state where key = 'incidents'
+on conflict (id) do nothing;
+
+insert into public.simot_checklist (id, value, updated_at)
+select 'state', value, updated_at from public.simot_state where key = 'checklist'
 on conflict (id) do nothing;

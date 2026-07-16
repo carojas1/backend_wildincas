@@ -1,5 +1,27 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+
+function assertSupabaseSchemaCoverage() {
+  const schema = readFileSync("docs/supabase-schema.sql", "utf8");
+  const sources = [
+    "backend/services/auth/server.js",
+    "backend/services/rooms/server.js",
+    "backend/services/guests/server.js",
+    "backend/services/reservations/server.js",
+    "backend/services/operations/server.js",
+    "backend/services/finance/server.js",
+    "backend/services/employees/server.js",
+    "backend/services/notifications/server.js"
+  ].map((file) => readFileSync(file, "utf8")).join("\n");
+
+  const keys = [...sources.matchAll(/(?:loadState|saveState)\("([a-z0-9_]+)"/g)]
+    .map((match) => match[1]);
+  for (const key of new Set(keys)) {
+    assert.match(schema, new RegExp(`create table if not exists public\\.simot_${key}\\b`),
+      `Supabase schema is missing simot_${key}`);
+  }
+}
 
 const commands = [
   ["discovery", "backend/discovery/server.js", 7000],
@@ -51,6 +73,8 @@ async function waitForGatewayServices(count = 7) {
 }
 
 async function main() {
+  assertSupabaseSchemaCoverage();
+
   for (const [name, file] of commands) {
     const child = spawn(process.execPath, [file], { stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (chunk) => process.stdout.write(`[${name}] ${chunk}`));
