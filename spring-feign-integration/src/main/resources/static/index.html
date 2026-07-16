@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIMOT | Demostracion Feign</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Arial, sans-serif; color: #1d2b27; background: #f2f5f3; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    header { background: #173f37; color: white; border-bottom: 4px solid #c09b54; padding: 18px 24px; }
+    header div { width: min(960px, 100%); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-family: Georgia, serif; font-size: 24px; letter-spacing: 0; }
+    header span { color: #c9d8d3; font-size: 12px; }
+    main { width: min(960px, calc(100% - 32px)); margin: 28px auto; display: grid; gap: 18px; }
+    .statusbar { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #d6dfdb; background: white; border-radius: 6px; overflow: hidden; }
+    .statusbar div { min-height: 62px; padding: 12px; border-left: 1px solid #e1e7e4; }
+    .statusbar div:first-child { border-left: 0; }
+    small { display: block; color: #6d7b76; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    b { display: block; margin-top: 6px; font-size: 13px; }
+    section { background: white; border: 1px solid #d6dfdb; border-radius: 6px; padding: 20px; box-shadow: 0 8px 24px rgba(24, 55, 46, .06); }
+    h2 { margin: 0 0 16px; font-family: Georgia, serif; font-size: 19px; }
+    .form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label { display: grid; gap: 6px; color: #5f6d68; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    label.wide { grid-column: 1 / -1; }
+    input { width: 100%; min-height: 42px; border: 1px solid #ccd7d2; border-radius: 5px; padding: 0 11px; font: inherit; color: #1d2b27; }
+    input:focus { outline: 3px solid #dce9e4; border-color: #5f8f80; }
+    button { grid-column: 1 / -1; min-height: 44px; border: 0; border-radius: 5px; background: #173f37; color: white; font-size: 13px; font-weight: 800; cursor: pointer; }
+    button:disabled { background: #8c9a95; cursor: wait; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+    .flow span { min-height: 52px; display: grid; place-items: center; text-align: center; border: 1px solid #d8e1dd; border-radius: 5px; background: #f7f9f8; color: #53635d; font-size: 10px; font-weight: 800; padding: 7px; }
+    .flow span.active { border-color: #bb944b; background: #faf3e5; color: #6c501c; }
+    pre { min-height: 180px; max-height: 420px; overflow: auto; margin: 0; border-radius: 5px; background: #102a24; color: #dce9e4; padding: 16px; font: 12px/1.55 Consolas, monospace; white-space: pre-wrap; }
+    .error { color: #a13f3f; }
+    @media (max-width: 700px) { .statusbar, .form, .flow { grid-template-columns: 1fr; } .statusbar div { border-left: 0; border-top: 1px solid #e1e7e4; } .statusbar div:first-child { border-top: 0; } label.wide, button { grid-column: auto; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>SIMOT Wild Incas</h1><span>Demostracion REST con Feign Client</span></div></header>
+  <main>
+    <div class="statusbar">
+      <div><small>Consumidor</small><b>Spring Boot</b></div>
+      <div><small>Cliente</small><b>OpenFeign</b></div>
+      <div><small>Entrada</small><b>API Gateway</b></div>
+      <div><small>Proveedor</small><b>Reservations</b></div>
+    </div>
+    <section>
+      <h2>Ejecutar demostracion</h2>
+      <div class="form">
+        <label>Usuario<input id="username" autocomplete="username" value="apolo"></label>
+        <label>Contrasena<input id="password" type="password" autocomplete="current-password"></label>
+        <label class="wide">ID de reserva (opcional)<input id="reservationId" placeholder="Se utilizara la primera reserva disponible"></label>
+        <button id="run">Consultar estadia mediante Feign</button>
+      </div>
+    </section>
+    <section>
+      <h2>Recorrido de la solicitud</h2>
+      <div class="flow" id="flow">
+        <span>Autenticacion</span><span>Spring Controller</span><span>Cliente Feign</span><span>API Gateway</span><span>Reservations</span>
+      </div>
+    </section>
+    <section>
+      <h2>Respuesta tipada</h2>
+      <pre id="result">Esperando demostracion...</pre>
+    </section>
+  </main>
+  <script>
+    const gateway = "https://backend-wildincas.onrender.com";
+    const runButton = document.querySelector("#run");
+    const result = document.querySelector("#result");
+    const steps = [...document.querySelectorAll("#flow span")];
+
+    function activate(index) {
+      steps.forEach((step, position) => step.classList.toggle("active", position <= index));
+    }
+
+    async function request(url, options = {}) {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
+      return payload;
+    }
+
+    runButton.addEventListener("click", async () => {
+      runButton.disabled = true;
+      result.classList.remove("error");
+      result.textContent = "Autenticando en Render...";
+      steps.forEach((step) => step.classList.remove("active"));
+      try {
+        activate(0);
+        const login = await request(`${gateway}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: document.querySelector("#username").value, password: document.querySelector("#password").value })
+        });
+        const authorization = `Bearer ${login.data.token}`;
+        let reservationId = document.querySelector("#reservationId").value.trim();
+        if (!reservationId) {
+          const reservations = await request(`${gateway}/api/reservations/reservations`, { headers: { Authorization: authorization } });
+          reservationId = reservations.data?.[0]?.id;
+        }
+        if (!reservationId) throw new Error("No existe una reserva disponible para la demostracion");
+        activate(1);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        activate(2);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        activate(3);
+        const summary = await request(`${location.origin}/api/integration/reservations/${encodeURIComponent(reservationId)}/summary`, {
+          headers: { Authorization: authorization }
+        });
+        activate(4);
+        result.textContent = JSON.stringify(summary, null, 2);
+      } catch (error) {
+        result.classList.add("error");
+        result.textContent = `ERROR: ${error.message}`;
+      } finally {
+        runButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
