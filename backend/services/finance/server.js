@@ -55,11 +55,13 @@ function reconcileVoidedPaymentMovements() {
   return updated;
 }
 
-function reconcileDuplicateLegacyCheckins() {
+function reconcileDuplicateLegacyMovements() {
   const seen = new Set();
   let updated = 0;
   for (const movement of state.movements) {
-    if (movement.status === "voided" || movement.paymentId || !String(movement.concept || "").startsWith("Check-in Hab.")) continue;
+    const concept = String(movement.concept || "");
+    const isLegacyHotelIncome = concept.startsWith("Check-in Hab.") || concept.startsWith("Pago Hab.");
+    if (movement.status === "voided" || movement.paymentId || movement.source === "manual" || !isLegacyHotelIncome) continue;
     const signature = [movement.date, movement.type, movement.concept, movement.method, Number(movement.amount || 0)].join("|");
     if (!seen.has(signature)) {
       seen.add(signature);
@@ -134,7 +136,7 @@ function openShiftView() {
   };
 }
 
-const reconciledMovements = reconcileVoidedPaymentMovements() + reconcileDuplicateLegacyCheckins();
+const reconciledMovements = reconcileVoidedPaymentMovements() + reconcileDuplicateLegacyMovements();
 if (reconciledMovements > 0) {
   console.info(`[finance] reconciled ${reconciledMovements} voided payment movement(s)`);
   await persist();
