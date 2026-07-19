@@ -34,6 +34,45 @@ function persist() {
   return saveState("finance", state);
 }
 
+function reconcileVoidedPaymentMovements() {
+  let updated = 0;
+  for (const payment of state.payments.filter((item) => item.status === "voided")) {
+    const movement = state.movements.find((item) => {
+      if (item.status === "voided") return false;
+      if (item.paymentId === payment.id) return true;
+      return item.source === "payment"
+        && item.createdAt === payment.createdAt
+        && Number(item.amount || 0) === Number(payment.amount || 0)
+        && (item.reservationId === payment.reservationId || item.invoiceId === payment.invoiceId);
+    });
+    if (!movement) continue;
+    movement.paymentId = payment.id;
+    movement.status = "voided";
+    movement.voidedAt = payment.voidedAt || now();
+    movement.voidReason = payment.voidReason || "Pago anulado";
+    updated += 1;
+  }
+  return updated;
+}
+
+function reconcileDuplicateLegacyCheckins() {
+  const seen = new Set();
+  let updated = 0;
+  for (const movement of state.movements) {
+    if (movement.status === "voided" || movement.paymentId || !String(movement.concept || "").startsWith("Check-in Hab.")) continue;
+    const signature = [movement.date, movement.type, movement.concept, movement.method, Number(movement.amount || 0)].join("|");
+    if (!seen.has(signature)) {
+      seen.add(signature);
+      continue;
+    }
+    movement.status = "voided";
+    movement.voidedAt = now();
+    movement.voidReason = "Movimiento duplicado de flujo anterior";
+    updated += 1;
+  }
+  return updated;
+}
+
 function now() {
   return new Date().toISOString();
 }
@@ -49,7 +88,7 @@ function movementTotal(items, type, method = null) {
 }
 
 function dailySnapshot(date = today()) {
-  const items = state.movements.filter((item) => item.date === date);
+  const items = state.movements.filter((item) => item.date === date && item.status !== "voided");
   const methods = ["Efectivo", "Transferencia", "Tarjeta", "Deposito"].map((method) => ({
     method,
     income: movementTotal(items, "income", method),
@@ -78,6 +117,27 @@ function nextInvoiceNumber() {
   const year = new Date().getFullYear();
   const count = state.invoices.filter((item) => String(item.number || "").startsWith(`FAC-${year}-`)).length + 1;
   return `FAC-${year}-${String(count).padStart(5, "0")}`;
+}
+
+function openShiftView() {
+  if (!state.openShift) return null;
+  const movements = state.movements.filter((item) => item.shiftId === state.openShift.id && item.status !== "voided");
+  const cashNet = movements
+    .filter((item) => item.method === "Efectivo")
+    .reduce((sum, item) => sum + (item.type === "income" ? item.amount : -item.amount), 0);
+  return {
+    ...state.openShift,
+    expected: parseMoney(state.openShift.initial + cashNet),
+    movementCount: movements.length,
+    cashIncome: movementTotal(movements, "income", "Efectivo"),
+    cashExpense: movementTotal(movements, "expense", "Efectivo")
+  };
+}
+
+const reconciledMovements = reconcileVoidedPaymentMovements() + reconcileDuplicateLegacyCheckins();
+if (reconciledMovements > 0) {
+  console.info(`[finance] reconciled ${reconciledMovements} voided payment movement(s)`);
+  await persist();
 }
 
 app.get("/movements", (req, res) => {
@@ -319,7 +379,7 @@ app.get("/metrics", (_req, res) => {
   });
 });
 
-app.get("/shifts", (_req, res) => ok(res, { openShift: state.openShift, history: state.shifts }));
+app.get("/shifts", (_req, res) => ok(res, { openShift: openShiftView(), history: state.shifts }));
 
 app.post("/shifts/open", async (req, res) => {
   if (state.openShift) return fail(res, "Ya existe una caja abierta", 409);
@@ -341,7 +401,7 @@ app.post("/shifts/open", async (req, res) => {
 app.post("/shifts/close", async (req, res) => {
   if (!state.openShift) return fail(res, "No existe caja abierta", 404);
   const expected = parseMoney(state.openShift.initial + state.movements
-    .filter((item) => item.method === "Efectivo" && item.shiftId === state.openShift.id)
+    .filter((item) => item.status !== "voided" && item.method === "Efectivo" && item.shiftId === state.openShift.id)
     .reduce((sum, item) => sum + (item.type === "income" ? item.amount : -item.amount), 0));
   const closed = parseMoney(req.body.closed);
   const shift = {
@@ -385,7 +445,8 @@ function createWorkbook() {
     ["Utilidad", movementTotal(state.movements, "income") - movementTotal(state.movements, "expense")],
     ["Cuentas pendientes", state.invoices.reduce((sum, item) => sum + refreshInvoice(item).balance, 0)],
     ["Facturas finales", state.invoices.length],
-    ["Pagos registrados", state.payments.length]
+    ["Pagos validos", state.payments.filter((item) => item.status !== "voided").length],
+    ["Pagos anulados", state.payments.filter((item) => item.status === "voided").length]
   ]);
   styleSummary(summary);
 
@@ -398,10 +459,10 @@ function createWorkbook() {
     ["Factura", "invoiceNumber"], ["Categoria", "category"], ["Descripcion", "description"], ["Cantidad", "quantity"], ["Precio unitario", "unitPrice"], ["Total", "total"]
   ], state.invoices.flatMap((invoice) => invoice.lines.map((line) => ({ invoiceNumber: invoice.number, ...line }))));
   addDataSheet(workbook, "Pagos", [
-    ["Fecha", "createdAt"], ["Factura", "invoiceNumber"], ["Reserva", "reservationCode"], ["Cliente", "guestName"], ["Habitacion", "roomId"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Recibido", "received"], ["Cambio", "change"]
+    ["Fecha", "createdAt"], ["Factura", "invoiceNumber"], ["Reserva", "reservationCode"], ["Cliente", "guestName"], ["Habitacion", "roomId"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Recibido", "received"], ["Cambio", "change"], ["Estado", "status"], ["Motivo anulacion", "voidReason"]
   ], state.payments);
   addDataSheet(workbook, "Ingresos y gastos", [
-    ["Fecha", "date"], ["Tipo", "type"], ["Categoria", "category"], ["Concepto", "concept"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Notas", "notes"]
+    ["Fecha", "date"], ["Tipo", "type"], ["Categoria", "category"], ["Concepto", "concept"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Notas", "notes"], ["Estado", "status"], ["Motivo anulacion", "voidReason"]
   ], state.movements);
   addDataSheet(workbook, "Turnos", [
     ["Fecha", "date"], ["Turno", "shift"], ["Responsable", "responsible"], ["Inicial", "initial"], ["Esperado", "expected"], ["Cierre", "closed"], ["Diferencia", "difference"], ["Estado", "status"], ["Notas", "notes"]

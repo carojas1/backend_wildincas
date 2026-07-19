@@ -89,6 +89,22 @@ function overlaps(item, roomId, checkIn, checkOut, excludeId = "") {
     && checkOut > item.checkIn;
 }
 
+async function validateRoom(roomId, { immediateCheckIn = false, currentRoomId = "" } = {}) {
+  let room;
+  try {
+    room = await serviceRequest("rooms", `/${encodeURIComponent(roomId)}`);
+  } catch (error) {
+    throw new Error(`No se pudo validar la habitacion ${roomId}: ${error.message}`);
+  }
+  if (["maintenance", "out_of_service"].includes(room.status)) {
+    throw new Error(`La habitacion ${roomId} no esta habilitada para nuevas reservas`);
+  }
+  if (immediateCheckIn && roomId !== currentRoomId && room.status !== "available") {
+    throw new Error(`La habitacion ${roomId} debe estar disponible antes de registrar el check-in`);
+  }
+  return room;
+}
+
 function invoiceLines(reservation) {
   const nights = nightsBetween(reservation.checkIn, reservation.checkOut);
   return [
@@ -240,6 +256,17 @@ app.get("/availability", (req, res) => {
   ok(res, { checkIn, checkOut, blockedRoomIds });
 });
 
+app.get("/rooms/:roomId/occupancy", (req, res) => {
+  const reservation = state.reservations.find((item) => item.roomId === req.params.roomId && item.status === "checked_in");
+  ok(res, {
+    roomId: req.params.roomId,
+    occupied: Boolean(reservation),
+    reservationId: reservation?.id || null,
+    reservationCode: reservation?.code || null,
+    guestId: reservation?.guestId || null
+  });
+});
+
 app.post("/reservations", async (req, res) => {
   const checkIn = String(req.body.checkIn || today());
   const checkOut = String(req.body.checkOut || "");
@@ -251,8 +278,18 @@ app.post("/reservations", async (req, res) => {
   if (state.reservations.some((item) => overlaps(item, roomId, checkIn, checkOut))) {
     return fail(res, "La habitacion ya tiene una reserva cruzada en esas fechas", 409);
   }
-  const guest = upsertGuest(req.body);
   const startCheckedIn = req.body.action === "check_in";
+  try {
+    await validateRoom(roomId, { immediateCheckIn: startCheckedIn });
+  } catch (error) {
+    return fail(res, error.message, 409);
+  }
+  const guestMatch = state.guests.find((item) =>
+    (req.body.documentNumber && item.documentNumber === String(req.body.documentNumber).trim())
+    || (req.body.email && String(item.email || "").toLowerCase() === String(req.body.email).trim().toLowerCase())
+  );
+  const previousGuest = guestMatch ? structuredClone(guestMatch) : null;
+  const guest = upsertGuest(req.body);
   const reservation = {
     id: nanoid(10),
     code: `RES-${new Date().getFullYear()}-${nanoid(6).toUpperCase()}`,
@@ -276,9 +313,20 @@ app.post("/reservations", async (req, res) => {
   };
   state.reservations.unshift(reservation);
   audit("reservation_created", reservation, req.body.actor || "Recepcion", `Hab. ${roomId}`);
-  await persist();
-  if (startCheckedIn) {
-    await serviceRequest("rooms", `/${roomId}/status`, { method: "PATCH", body: { status: "occupied", guestId: guest.id } }).catch(() => null);
+  try {
+    if (startCheckedIn) {
+      await serviceRequest("rooms", `/${roomId}/status`, { method: "PATCH", body: { status: "occupied", guestId: guest.id } });
+    }
+    await persist();
+  } catch (error) {
+    state.reservations = state.reservations.filter((item) => item.id !== reservation.id);
+    state.audit = state.audit.filter((item) => item.reservationId !== reservation.id);
+    if (previousGuest) Object.assign(guest, previousGuest);
+    else state.guests = state.guests.filter((item) => item.id !== guest.id);
+    if (startCheckedIn) {
+      await serviceRequest("rooms", `/${roomId}/status`, { method: "PATCH", body: { status: "available" } }).catch(() => null);
+    }
+    return fail(res, `No se pudo guardar la reserva completa: ${error.message}`, 503);
   }
   const notification = await queueNotification(startCheckedIn ? "check-in" : "reservation-confirmed", reservation);
   ok(res, { reservation: reservationView(reservation), notification }, 201);
@@ -287,12 +335,23 @@ app.post("/reservations", async (req, res) => {
 app.patch("/reservations/:id", async (req, res) => {
   const reservation = state.reservations.find((item) => item.id === req.params.id);
   if (!reservation) return fail(res, "Reserva no encontrada", 404);
+  const previousReservation = structuredClone(reservation);
+  const guest = state.guests.find((item) => item.id === reservation.guestId);
+  const previousGuest = guest ? structuredClone(guest) : null;
+  const previousRoomId = reservation.roomId;
   const nextCheckIn = req.body.checkIn || reservation.checkIn;
   const nextCheckOut = req.body.checkOut || reservation.checkOut;
   const nextRoomId = req.body.roomId || reservation.roomId;
   if (nextCheckOut <= nextCheckIn) return fail(res, "La salida debe ser posterior a la entrada", 422);
   if (state.reservations.some((item) => overlaps(item, nextRoomId, nextCheckIn, nextCheckOut, reservation.id))) {
     return fail(res, "La habitacion ya tiene una reserva cruzada en esas fechas", 409);
+  }
+  if (nextRoomId !== previousRoomId) {
+    try {
+      await validateRoom(nextRoomId, { immediateCheckIn: reservation.status === "checked_in", currentRoomId: previousRoomId });
+    } catch (error) {
+      return fail(res, error.message, 409);
+    }
   }
   for (const field of ["roomId", "roomType", "checkIn", "checkOut", "exitTime", "source", "notes"]) {
     if (req.body[field] !== undefined) reservation[field] = req.body[field];
@@ -301,11 +360,35 @@ app.patch("/reservations/:id", async (req, res) => {
     if (req.body[field] !== undefined) reservation[field] = parseMoney(req.body[field]);
   }
   if (req.body.name || req.body.email || req.body.documentNumber) {
-    const guest = state.guests.find((item) => item.id === reservation.guestId);
-    Object.assign(guest, req.body, { id: guest.id, updatedAt: now() });
+    for (const field of ["name", "documentType", "documentNumber", "email", "phone", "address", "country", "notes"]) {
+      if (req.body[field] !== undefined) guest[field] = String(req.body[field]).trim();
+    }
+    guest.updatedAt = now();
   }
   reservation.lodgingSubtotal = parseMoney(nightsBetween(reservation.checkIn, reservation.checkOut) * reservation.nightlyRate);
   reservation.updatedAt = now();
+  if (reservation.status === "checked_in" && previousRoomId !== reservation.roomId) {
+    try {
+      await serviceRequest("rooms", `/${reservation.roomId}/status`, {
+        method: "PATCH",
+        body: { status: "occupied", guestId: reservation.guestId }
+      });
+      await serviceRequest("rooms", `/${previousRoomId}/cleaning`, {
+        method: "POST",
+        body: { notes: `Traslado de ${reservation.code} a la habitacion ${reservation.roomId}. Limpieza y revision pendientes.` }
+      });
+    } catch (error) {
+      Object.assign(reservation, previousReservation);
+      if (guest && previousGuest) Object.assign(guest, previousGuest);
+      await Promise.allSettled([
+        serviceRequest("rooms", `/${nextRoomId}/status`, { method: "PATCH", body: { status: "available" } }),
+        serviceRequest("rooms", `/${previousRoomId}/status`, { method: "PATCH", body: { status: "occupied", guestId: reservation.guestId } })
+      ]);
+      await persist();
+      return fail(res, `No se pudo completar el traslado: ${error.message}`, 503);
+    }
+    audit("room_changed", reservation, req.body.actor || "Recepcion", `${previousRoomId} -> ${reservation.roomId}`);
+  }
   audit("reservation_updated", reservation, req.body.actor || "Recepcion");
   await persist();
   const notification = await queueNotification("reservation-modified", reservation);
@@ -316,15 +399,29 @@ app.post("/reservations/:id/check-in", async (req, res) => {
   const reservation = state.reservations.find((item) => item.id === req.params.id);
   if (!reservation) return fail(res, "Reserva no encontrada", 404);
   if (reservation.status !== "confirmed") return fail(res, "Solo una reserva confirmada puede hacer check-in", 409);
+  const previousReservation = structuredClone(reservation);
+  const previousAuditIds = new Set(state.audit.map((item) => item.id));
+  try {
+    await validateRoom(reservation.roomId, { immediateCheckIn: true });
+    await serviceRequest("rooms", `/${reservation.roomId}/status`, {
+      method: "PATCH",
+      body: { status: "occupied", guestId: reservation.guestId }
+    });
+  } catch (error) {
+    return fail(res, error.message, 409);
+  }
   reservation.status = "checked_in";
   reservation.checkedInAt = now();
   reservation.updatedAt = now();
   audit("check_in", reservation, req.body.actor || "Recepcion");
-  await persist();
-  await serviceRequest("rooms", `/${reservation.roomId}/status`, {
-    method: "PATCH",
-    body: { status: "occupied", guestId: reservation.guestId }
-  });
+  try {
+    await persist();
+  } catch (error) {
+    Object.assign(reservation, previousReservation);
+    state.audit = state.audit.filter((item) => previousAuditIds.has(item.id));
+    await serviceRequest("rooms", `/${reservation.roomId}/status`, { method: "PATCH", body: { status: "available" } }).catch(() => null);
+    return fail(res, `No se pudo guardar el check-in: ${error.message}`, 503);
+  }
   const notification = await queueNotification("check-in", reservation);
   ok(res, { reservation: reservationView(reservation), notification });
 });

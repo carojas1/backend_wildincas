@@ -96,6 +96,27 @@ async function main() {
 
   const rooms = await readJson("http://127.0.0.1:8080/api/rooms", { headers: authHeaders });
   assert.equal(rooms.data.length, 7);
+  const room202 = await readJson("http://127.0.0.1:8080/api/rooms/202", { headers: authHeaders });
+  assert.equal(room202.data.rate, 35);
+
+  const missingRoomReservation = await fetch("http://127.0.0.1:8080/api/reservations/reservations", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({
+      name: "Reserva invalida",
+      roomId: "999",
+      checkIn: "2027-01-10",
+      checkOut: "2027-01-12",
+      nightlyRate: 35
+    })
+  });
+  assert.equal(missingRoomReservation.status, 409);
+
+  await readJson("http://127.0.0.1:8080/api/finance/shifts/open", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ shift: "Tarde", responsible: "Prueba automatizada", initial: 100 })
+  });
 
   const reservationResult = await readJson("http://127.0.0.1:8080/api/reservations/reservations", {
     method: "POST",
@@ -115,6 +136,40 @@ async function main() {
   });
   const reservation = reservationResult.data.reservation;
   assert.equal(reservation.total, 70);
+
+  const occupiedCleaning = await fetch("http://127.0.0.1:8080/api/rooms/202/cleaning", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ notes: "No debe permitirse con huesped activo" })
+  });
+  assert.equal(occupiedCleaning.status, 409);
+
+  await readJson("http://127.0.0.1:8080/api/rooms/302/status", {
+    method: "PATCH",
+    headers: authHeaders,
+    body: JSON.stringify({ status: "maintenance" })
+  });
+  const blockedMove = await fetch(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}`, {
+    method: "PATCH",
+    headers: authHeaders,
+    body: JSON.stringify({ roomId: "302", actor: "Prueba automatizada" })
+  });
+  assert.equal(blockedMove.status, 409);
+
+  await readJson("http://127.0.0.1:8080/api/rooms/302/status", {
+    method: "PATCH",
+    headers: authHeaders,
+    body: JSON.stringify({ status: "available" })
+  });
+  const movedReservation = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}`, {
+    method: "PATCH",
+    headers: authHeaders,
+    body: JSON.stringify({ roomId: "302", roomType: "Habitacion Privada", actor: "Prueba automatizada" })
+  });
+  assert.equal(movedReservation.data.reservation.roomId, "302");
+  const roomsAfterMove = await readJson("http://127.0.0.1:8080/api/rooms", { headers: authHeaders });
+  assert.equal(roomsAfterMove.data.find((item) => item.id === "202").status, "cleaning");
+  assert.equal(roomsAfterMove.data.find((item) => item.id === "302").status, "occupied");
 
   await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/charges`, {
     method: "POST",
@@ -137,6 +192,8 @@ async function main() {
   assert.equal(duplicatePayment.data.payment.id, paymentResult.data.payment.id);
   const reservationPayments = await readJson(`http://127.0.0.1:8080/api/finance/payments?reservationId=${reservation.id}`, { headers: authHeaders });
   assert.equal(reservationPayments.data.length, 1);
+  const shiftWithPayment = await readJson("http://127.0.0.1:8080/api/finance/shifts", { headers: authHeaders });
+  assert.equal(shiftWithPayment.data.openShift.expected, 130);
 
   const overpayment = await fetch(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/payments`, {
     method: "POST",
@@ -152,6 +209,41 @@ async function main() {
   });
   assert.equal(checkout.data.invoice.total, 78);
   assert.equal(checkout.data.invoice.balance, 48);
+  assert.equal(checkout.data.invoice.roomId, "302");
+
+  await readJson(`http://127.0.0.1:8080/api/finance/payments/${paymentResult.data.payment.id}/void`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ actor: "Prueba automatizada", reason: "Validar conciliacion" })
+  });
+  const shiftAfterVoid = await readJson("http://127.0.0.1:8080/api/finance/shifts", { headers: authHeaders });
+  assert.equal(shiftAfterVoid.data.openShift.expected, 100);
+  const movementsAfterVoid = await readJson("http://127.0.0.1:8080/api/finance/movements", { headers: authHeaders });
+  const voidedPaymentMovement = movementsAfterVoid.data.find((item) => item.paymentId === paymentResult.data.payment.id);
+  assert.equal(voidedPaymentMovement.status, "voided");
+  assert.equal(voidedPaymentMovement.voidReason, "Validar conciliacion");
+
+  const onboarding = await readJson("http://127.0.0.1:8080/api/employees/onboard", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({
+      name: "Empleado Integracion",
+      email: "empleado.integracion@example.com",
+      username: "eintegracion",
+      password: "Temporal#2026",
+      roleId: "limpieza",
+      role: "Limpieza",
+      modules: ["rooms", "cleaning", "logbook"]
+    })
+  });
+  assert.equal(onboarding.data.employee.username, "eintegracion");
+  assert.deepEqual(onboarding.data.user.modules, ["rooms", "cleaning", "logbook"]);
+  const updatedEmployee = await readJson(`http://127.0.0.1:8080/api/employees/${onboarding.data.employee.id}`, {
+    method: "PATCH",
+    headers: authHeaders,
+    body: JSON.stringify({ roleId: "mantenimiento", role: "Mantenimiento", modules: ["rooms", "logbook"] })
+  });
+  assert.deepEqual(updatedEmployee.data.access.modules, ["rooms", "logbook"]);
 
   const welcome = await readJson("http://127.0.0.1:8080/api/notifications/employees/welcome", {
     method: "POST",
