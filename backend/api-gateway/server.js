@@ -6,6 +6,8 @@ const port = Number(process.env.PORT || process.env.GATEWAY_PORT || 8080);
 const host = process.env.GATEWAY_HOST || "0.0.0.0";
 const discoveryUrl = process.env.DISCOVERY_URL || "http://127.0.0.1:7000";
 const upstreamTimeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS || 12000);
+const resolutionTimeoutMs = Number(process.env.SERVICE_RESOLUTION_TIMEOUT_MS || 20000);
+const resolutionRetryMs = Number(process.env.SERVICE_RESOLUTION_RETRY_MS || 350);
 
 const routes = {
   "/api/auth": "auth",
@@ -30,6 +32,7 @@ const routeModules = {
 };
 
 const cache = new Map();
+const resolutions = new Map();
 const localPorts = {
   auth: process.env.AUTH_PORT || 7101,
   rooms: process.env.ROOMS_PORT || 7102,
@@ -44,22 +47,63 @@ const localPorts = {
 async function resolveService(name) {
   const cached = cache.get(name);
   if (cached && Date.now() - cached.at < 15000) return cached.url;
-  try {
-    const response = await fetch(`${discoveryUrl}/services/${name}`);
-    if (response.ok) {
-      const payload = await response.json();
-      cache.set(name, { url: payload.data.url, at: Date.now() });
-      return payload.data.url;
+  if (resolutions.has(name)) return resolutions.get(name);
+
+  const resolution = resolveWithRetry(name).finally(() => resolutions.delete(name));
+  resolutions.set(name, resolution);
+  return resolution;
+}
+
+async function resolveWithRetry(name) {
+  const deadline = Date.now() + resolutionTimeoutMs;
+  let lastMessage = `${name} is not registered`;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${discoveryUrl}/services/${name}`);
+      if (response.ok) {
+        const payload = await response.json();
+        const url = payload.data?.url;
+        if (url) {
+          cache.set(name, { url, at: Date.now() });
+          return url;
+        }
+      } else {
+        lastMessage = `${name} is not registered`;
+      }
+    } catch (error) {
+      lastMessage = error.message;
     }
+
+    if (String(process.env.LOCAL_SERVICE_FALLBACK || "true") !== "false" && localPorts[name]) {
+      const url = `http://127.0.0.1:${localPorts[name]}`;
+      if (await isHealthy(url)) {
+        cache.set(name, { url, at: Date.now() });
+        return url;
+      }
+    }
+
+    await delay(resolutionRetryMs);
+  }
+
+  throw new Error(`${name} is not registered (${lastMessage})`);
+}
+
+async function isHealthy(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 500);
+  try {
+    const response = await fetch(`${url}/health`, { signal: controller.signal });
+    return response.ok;
   } catch {
-    // The local fallback below keeps a single-instance deployment available while discovery restarts.
+    return false;
+  } finally {
+    clearTimeout(timeout);
   }
-  if (String(process.env.LOCAL_SERVICE_FALLBACK || "true") !== "false" && localPorts[name]) {
-    const url = `http://127.0.0.1:${localPorts[name]}`;
-    cache.set(name, { url, at: Date.now() });
-    return url;
-  }
-  throw new Error(`${name} is not registered`);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 app.use(cors({

@@ -3,6 +3,9 @@ import express from "express";
 
 const DISCOVERY_URL = process.env.DISCOVERY_URL || "http://127.0.0.1:7000";
 const serviceCache = new Map();
+const serviceResolutions = new Map();
+const resolutionTimeoutMs = Number(process.env.SERVICE_RESOLUTION_TIMEOUT_MS || 20000);
+const resolutionRetryMs = Number(process.env.SERVICE_RESOLUTION_RETRY_MS || 350);
 const localPorts = {
   auth: process.env.AUTH_PORT || 7101,
   rooms: process.env.ROOMS_PORT || 7102,
@@ -36,7 +39,7 @@ export function createService({ name, port, description }) {
   function listen() {
     app.listen(port, host, () => {
       console.log(`${name} listening on ${host}:${port}`);
-      registerService(name, port, description);
+      registerUntilAvailable(name, port, description);
       setInterval(() => registerService(name, port, description), 25000).unref();
     });
   }
@@ -47,7 +50,7 @@ export function createService({ name, port, description }) {
 export async function registerService(name, port, description = "") {
   try {
     const serviceUrl = process.env.SERVICE_URL || `http://127.0.0.1:${port}`;
-    await fetch(`${DISCOVERY_URL}/register`, {
+    const response = await fetch(`${DISCOVERY_URL}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -57,33 +60,82 @@ export async function registerService(name, port, description = "") {
         registeredAt: new Date().toISOString()
       })
     });
+    if (!response.ok) throw new Error(`discovery respondio ${response.status}`);
+    return true;
   } catch (error) {
     console.warn(`${name} could not register in discovery: ${error.message}`);
+    return false;
   }
+}
+
+async function registerUntilAvailable(name, port, description) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (await registerService(name, port, description)) return;
+    await delay(500);
+  }
+  console.warn(`${name} will continue registration through the heartbeat interval`);
 }
 
 export async function resolveService(name) {
   const cached = serviceCache.get(name);
   if (cached && Date.now() - cached.at < 10000) return cached.url;
-  try {
-    const response = await fetch(`${DISCOVERY_URL}/services/${name}`);
-    if (response.ok) {
-      const payload = await response.json();
-      const url = payload.data?.url;
-      if (url) {
+  if (serviceResolutions.has(name)) return serviceResolutions.get(name);
+
+  const resolution = resolveWithRetry(name).finally(() => serviceResolutions.delete(name));
+  serviceResolutions.set(name, resolution);
+  return resolution;
+}
+
+async function resolveWithRetry(name) {
+  const deadline = Date.now() + resolutionTimeoutMs;
+  let lastMessage = `El servicio ${name} no esta registrado`;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${DISCOVERY_URL}/services/${name}`);
+      if (response.ok) {
+        const payload = await response.json();
+        const url = payload.data?.url;
+        if (url) {
+          serviceCache.set(name, { url, at: Date.now() });
+          return url;
+        }
+      } else {
+        lastMessage = `El servicio ${name} no esta registrado`;
+      }
+    } catch (error) {
+      lastMessage = error.message;
+    }
+
+    if (String(process.env.LOCAL_SERVICE_FALLBACK || "true") !== "false" && localPorts[name]) {
+      const url = `http://127.0.0.1:${localPorts[name]}`;
+      if (await isHealthy(url)) {
         serviceCache.set(name, { url, at: Date.now() });
         return url;
       }
     }
+
+    await delay(resolutionRetryMs);
+  }
+
+  throw new Error(`El servicio ${name} no esta disponible (${lastMessage})`);
+}
+
+async function isHealthy(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 500);
+  try {
+    const response = await fetch(`${url}/health`, { signal: controller.signal });
+    return response.ok;
   } catch {
-    // A colocated Render deployment can continue through the known local service port.
+    return false;
+  } finally {
+    clearTimeout(timeout);
   }
-  if (String(process.env.LOCAL_SERVICE_FALLBACK || "true") !== "false" && localPorts[name]) {
-    const url = `http://127.0.0.1:${localPorts[name]}`;
-    serviceCache.set(name, { url, at: Date.now() });
-    return url;
-  }
-  throw new Error(`El servicio ${name} no esta disponible`);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function serviceRequest(name, path, options = {}) {
