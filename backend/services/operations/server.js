@@ -10,7 +10,7 @@ incidents = await loadState("incidents", seedIncidents);
 incidents = incidents.map((incident) => incident.id === "n2" && /desayuno/i.test(incident.title || "")
   ? structuredClone(seedIncidents.find((item) => item.id === "n2"))
   : incident);
-saveState("incidents", incidents);
+await saveState("incidents", incidents).catch((error) => console.warn(`Initial incident persistence deferred: ${error.message}`));
 
 let checklist = [
   "Contar efectivo en caja",
@@ -23,12 +23,14 @@ let checklist = [
 checklist = await loadState("checklist", checklist);
 
 function persistIncidents() {
-  saveState("incidents", incidents);
+  return saveState("incidents", incidents);
 }
 
 function persistChecklist() {
-  saveState("checklist", checklist);
+  return saveState("checklist", checklist);
 }
+
+await persistChecklist().catch((error) => console.warn(`Initial checklist persistence deferred: ${error.message}`));
 
 app.get("/agenda", (_req, res) => {
   ok(res, {
@@ -48,7 +50,7 @@ app.get("/incidents", (req, res) => {
   ok(res, data);
 });
 
-app.post("/incidents", (req, res) => {
+app.post("/incidents", async (req, res) => {
   if (!req.body.title || !req.body.description) return fail(res, "Titulo y detalle son obligatorios", 422);
   const incident = {
     id: nanoid(8),
@@ -62,27 +64,27 @@ app.post("/incidents", (req, res) => {
     ...req.body
   };
   incidents.unshift(incident);
-  persistIncidents();
+  await persistIncidents();
   ok(res, incident, 201);
 });
 
-app.patch("/incidents/:id/resolve", (req, res) => {
+app.patch("/incidents/:id/resolve", async (req, res) => {
   const incident = incidents.find((item) => item.id === req.params.id);
   if (!incident) return fail(res, "Novedad no encontrada", 404);
   incident.status = "resolved";
   incident.resolution = req.body.resolution || "Completado";
   incident.resolvedBy = req.body.resolvedBy || "Recepcion";
   incident.resolvedAt = new Date().toISOString();
-  persistIncidents();
+  await persistIncidents();
   ok(res, incident);
 });
 
 app.get("/checklist", (_req, res) => ok(res, checklist));
 
-app.patch("/checklist/:id", (req, res) => {
+app.patch("/checklist/:id", async (req, res) => {
   const item = checklist.find((entry) => entry.id === req.params.id);
   if (item) item.done = Boolean(req.body.done);
-  persistChecklist();
+  await persistChecklist();
   ok(res, item);
 });
 

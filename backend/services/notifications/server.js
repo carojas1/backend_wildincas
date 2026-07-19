@@ -29,6 +29,8 @@ function persist() {
   return saveState("notifications", state);
 }
 
+await persist().catch((error) => console.warn(`Initial notification persistence deferred: ${error.message}`));
+
 function now() {
   return new Date().toISOString();
 }

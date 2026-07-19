@@ -139,8 +139,8 @@ function openShiftView() {
 const reconciledMovements = reconcileVoidedPaymentMovements() + reconcileDuplicateLegacyMovements();
 if (reconciledMovements > 0) {
   console.info(`[finance] reconciled ${reconciledMovements} voided payment movement(s)`);
-  await persist();
 }
+await persist().catch((error) => console.warn(`Initial finance persistence deferred: ${error.message}`));
 
 app.get("/movements", (req, res) => {
   const { type = "all", date = "" } = req.query;

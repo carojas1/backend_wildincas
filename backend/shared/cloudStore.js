@@ -108,6 +108,48 @@ async function saveIsolatedState(key, value, updatedAt) {
     body: JSON.stringify({ id: "state", value, updated_at: updatedAt })
   });
   if (!response.ok) throw new Error(await response.text());
+  await syncEntityRows(key, value, updatedAt);
+  if (key === "reservations" && Array.isArray(value?.guests)) {
+    await upsertRows("guests", value.guests.map((item, index) => entityRow("profile", item, index, updatedAt)));
+  }
+}
+
+async function syncEntityRows(key, value, updatedAt) {
+  const rows = entityRows(value, updatedAt);
+  const baseUrl = `${SUPABASE_URL}/rest/v1/${tableFor(key)}`;
+  const deleteFilter = key === "guests" ? "?id=neq.state&id=not.like.profile:%25" : "?id=neq.state";
+  const deleteResponse = await fetchWithTimeout(`${baseUrl}${deleteFilter}`, {
+    method: "DELETE",
+    headers: { ...headers(), Prefer: "return=minimal" }
+  });
+  if (!deleteResponse.ok) throw new Error(await deleteResponse.text());
+  if (rows.length) await upsertRows(key, rows);
+}
+
+async function upsertRows(key, rows) {
+  if (!rows.length) return;
+  const response = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/${tableFor(key)}?on_conflict=id`, {
+    method: "POST",
+    headers: { ...headers(), Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(rows)
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
+
+function entityRows(value, updatedAt) {
+  if (Array.isArray(value)) return value.map((item, index) => entityRow("item", item, index, updatedAt, false));
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([collection, content]) => {
+    if (Array.isArray(content)) return content.map((item, index) => entityRow(collection, item, index, updatedAt));
+    if (content && typeof content === "object") return [entityRow(collection, content, 0, updatedAt)];
+    return [];
+  });
+}
+
+function entityRow(collection, value, index, updatedAt, namespaced = true) {
+  const rawId = value?.id || value?.code || value?.number || index + 1;
+  const id = namespaced ? `${collection}:${rawId}` : String(rawId);
+  return { id, value, updated_at: updatedAt };
 }
 
 async function saveLegacyState(key, value, updatedAt) {

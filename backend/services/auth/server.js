@@ -24,8 +24,10 @@ let users = [
 users = await loadState("auth_users", users);
 
 function persistUsers() {
-  saveState("auth_users", users);
+  return saveState("auth_users", users);
 }
+
+await persistUsers().catch((error) => console.warn(`Initial auth persistence deferred: ${error.message}`));
 
 const tokenSecret = process.env.AUTH_TOKEN_SECRET || process.env.SUPABASE_SECRET_KEY || "simot-development-token-secret";
 const tokenTtlMs = Number(process.env.AUTH_TOKEN_TTL_MS || 8 * 60 * 60 * 1000);
@@ -60,7 +62,7 @@ app.get("/users", (_req, res) => {
   ok(res, users.map(sanitize));
 });
 
-app.post("/users", (req, res) => {
+app.post("/users", async (req, res) => {
   const { username, password, name, email, roleId = "recepcion" } = req.body;
   if (!username || !password || !name) return fail(res, "Nombre, usuario y contrasena son obligatorios", 422);
   if (users.some((item) => item.username === username)) return fail(res, "El usuario ya existe", 409);
@@ -78,11 +80,11 @@ app.post("/users", (req, res) => {
     createdAt: new Date().toISOString()
   };
   users.unshift(user);
-  persistUsers();
+  await persistUsers();
   ok(res, sanitize(user), 201);
 });
 
-app.patch("/users/:id", (req, res) => {
+app.patch("/users/:id", async (req, res) => {
   const user = users.find((item) => item.id === req.params.id);
   if (!user) return fail(res, "Usuario no encontrado", 404);
   if (req.body.roleId) {
@@ -96,7 +98,7 @@ app.patch("/users/:id", (req, res) => {
   for (const field of ["name", "email", "status"]) {
     if (req.body[field] !== undefined) user[field] = req.body[field];
   }
-  persistUsers();
+  await persistUsers();
   ok(res, sanitize(user));
 });
 

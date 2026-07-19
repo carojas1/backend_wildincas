@@ -63,6 +63,8 @@ function persist() {
   return saveState("reservations", state);
 }
 
+await persist().catch((error) => console.warn(`Initial reservation persistence deferred: ${error.message}`));
+
 function now() {
   return new Date().toISOString();
 }

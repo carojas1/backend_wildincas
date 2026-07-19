@@ -12,6 +12,8 @@ function persist() {
   return saveState("employees", employees);
 }
 
+await persist().catch((error) => console.warn(`Initial employee persistence deferred: ${error.message}`));
+
 app.get("/", (req, res) => {
   const { q = "" } = req.query;
   const query = String(q).toLowerCase();

@@ -9,8 +9,10 @@ let guests = structuredClone(seedGuests);
 guests = await loadState("guests", seedGuests);
 
 function persist() {
-  saveState("guests", guests);
+  return saveState("guests", guests);
 }
+
+await persist().catch((error) => console.warn(`Initial guest persistence deferred: ${error.message}`));
 
 app.get("/", (req, res) => {
   const { q = "", status = "all" } = req.query;
@@ -23,7 +25,7 @@ app.get("/", (req, res) => {
   ok(res, data);
 });
 
-app.post("/", (req, res) => {
+app.post("/", async (req, res) => {
   const paid = parseMoney(req.body.paid);
   const guest = {
     id: nanoid(8),
@@ -43,11 +45,11 @@ app.post("/", (req, res) => {
     paid
   };
   guests.unshift(guest);
-  persist();
+  await persist();
   ok(res, guest, 201);
 });
 
-app.patch("/:id", (req, res) => {
+app.patch("/:id", async (req, res) => {
   const guest = guests.find((item) => item.id === req.params.id);
   if (!guest) return fail(res, "Huesped no encontrado", 404);
   for (const field of ["name", "country", "documentType", "documentNumber", "email", "roomId", "roomType", "checkIn", "checkOut", "exitTime", "status", "notes"]) {
@@ -56,11 +58,11 @@ app.patch("/:id", (req, res) => {
   for (const field of ["paid", "total"]) {
     if (req.body[field] !== undefined) guest[field] = parseMoney(req.body[field]);
   }
-  persist();
+  await persist();
   ok(res, guest);
 });
 
-app.post("/:id/payment", (req, res) => {
+app.post("/:id/payment", async (req, res) => {
   const guest = guests.find((item) => item.id === req.params.id);
   if (!guest) return fail(res, "Huesped no encontrado", 404);
   const amount = parseMoney(req.body.amount);
@@ -77,16 +79,16 @@ app.post("/:id/payment", (req, res) => {
   guest.payments = Array.isArray(guest.payments) ? guest.payments : [];
   guest.payments.unshift(payment);
   guest.paid = parseMoney(guest.paid + amount);
-  persist();
+  await persist();
   ok(res, { guest, payment });
 });
 
-app.post("/:id/checkout", (req, res) => {
+app.post("/:id/checkout", async (req, res) => {
   const guest = guests.find((item) => item.id === req.params.id);
   if (!guest) return fail(res, "Huesped no encontrado", 404);
   guest.status = "checkout";
   guest.checkoutAt = new Date().toISOString();
-  persist();
+  await persist();
   ok(res, guest);
 });
 
