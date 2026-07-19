@@ -31,7 +31,7 @@ function normalizeState(value) {
 }
 
 function persist() {
-  saveState("finance", state);
+  return saveState("finance", state);
 }
 
 function now() {
@@ -44,7 +44,7 @@ function today() {
 
 function movementTotal(items, type, method = null) {
   return parseMoney(items
-    .filter((item) => item.type === type && (!method || item.method === method))
+    .filter((item) => item.status !== "voided" && item.type === type && (!method || item.method === method))
     .reduce((sum, item) => sum + Number(item.amount || 0), 0));
 }
 
@@ -62,7 +62,7 @@ function dailySnapshot(date = today()) {
 }
 
 function invoicePayments(invoice) {
-  return state.payments.filter((payment) => payment.invoiceId === invoice.id || payment.reservationId === invoice.reservationId);
+  return state.payments.filter((payment) => payment.status !== "voided" && (payment.invoiceId === invoice.id || payment.reservationId === invoice.reservationId));
 }
 
 function refreshInvoice(invoice) {
@@ -85,7 +85,7 @@ app.get("/movements", (req, res) => {
   ok(res, state.movements.filter((item) => (type === "all" || item.type === type) && (!date || item.date === date)));
 });
 
-app.post("/movements", (req, res) => {
+app.post("/movements", async (req, res) => {
   const movement = {
     id: nanoid(9),
     date: req.body.date || today(),
@@ -104,7 +104,7 @@ app.post("/movements", (req, res) => {
   if (!['income', 'expense'].includes(movement.type)) return fail(res, "Tipo de movimiento no valido", 422);
   if (movement.amount <= 0) return fail(res, "El monto debe ser mayor a cero", 422);
   state.movements.unshift(movement);
-  persist();
+  await persist();
   ok(res, movement, 201);
 });
 
@@ -113,7 +113,7 @@ app.get("/payments", (req, res) => {
   ok(res, data);
 });
 
-app.post("/payments", (req, res) => {
+app.post("/payments", async (req, res) => {
   const idempotencyKey = String(req.body.idempotencyKey || "").trim();
   if (idempotencyKey) {
     const existing = state.payments.find((item) => item.idempotencyKey === idempotencyKey);
@@ -128,6 +128,11 @@ app.post("/payments", (req, res) => {
   const invoice = req.body.invoiceId
     ? state.invoices.find((item) => item.id === req.body.invoiceId)
     : state.invoices.find((item) => item.reservationId === req.body.reservationId);
+  if (invoice) {
+    refreshInvoice(invoice);
+    if (invoice.balance <= 0) return fail(res, "La factura ya esta pagada", 409);
+    if (amount > invoice.balance) return fail(res, `El pago supera el saldo pendiente de ${invoice.balance.toFixed(2)}`, 422);
+  }
   const payment = {
     id: nanoid(10),
     idempotencyKey: idempotencyKey || `payment:${nanoid(12)}`,
@@ -166,8 +171,29 @@ app.post("/payments", (req, res) => {
     notes: payment.notes
   });
   if (invoice) refreshInvoice(invoice);
-  persist();
+  await persist();
   ok(res, payment, 201);
+});
+
+app.post("/payments/:id/void", async (req, res) => {
+  const payment = state.payments.find((item) => item.id === req.params.id);
+  if (!payment) return fail(res, "Pago no encontrado", 404);
+  if (payment.status === "voided") return ok(res, payment);
+  const reason = String(req.body.reason || "Correccion autorizada").trim();
+  payment.status = "voided";
+  payment.voidedAt = now();
+  payment.voidedBy = req.body.actor || "Administrador";
+  payment.voidReason = reason;
+  const movement = state.movements.find((item) => item.paymentId === payment.id);
+  if (movement) {
+    movement.status = "voided";
+    movement.voidedAt = payment.voidedAt;
+    movement.voidReason = reason;
+  }
+  const invoice = state.invoices.find((item) => item.id === payment.invoiceId || item.reservationId === payment.reservationId);
+  if (invoice) refreshInvoice(invoice);
+  await persist();
+  ok(res, { payment, invoice: invoice || null });
 });
 
 app.get("/invoices", (req, res) => {
@@ -184,7 +210,7 @@ app.get("/invoices/:id", (req, res) => {
   ok(res, { ...refreshInvoice(invoice), payments: invoicePayments(invoice) });
 });
 
-app.post("/invoices/finalize", (req, res) => {
+app.post("/invoices/finalize", async (req, res) => {
   const idempotencyKey = String(req.body.idempotencyKey || `invoice-final:${req.body.reservationId}`);
   const existing = state.invoices.find((item) => item.idempotencyKey === idempotencyKey || item.reservationId === req.body.reservationId);
   if (existing) return ok(res, refreshInvoice(existing));
@@ -223,8 +249,10 @@ app.post("/invoices/finalize", (req, res) => {
       address: req.body.guest.address || ""
     },
     roomId: req.body.roomId || "",
+    roomType: req.body.roomType || "",
     checkIn: req.body.checkIn,
     checkOut: req.body.checkOut,
+    nights: Math.max(1, Number(req.body.nights || 1)),
     lines,
     subtotal,
     taxRate,
@@ -234,6 +262,8 @@ app.post("/invoices/finalize", (req, res) => {
     balance: parseMoney(subtotal + tax),
     paymentStatus: "pending",
     notes: req.body.notes || "",
+    issuedBy: req.body.issuedBy || "Recepcion",
+    currency: "USD",
     issuedAt: now(),
     updatedAt: now()
   };
@@ -243,7 +273,7 @@ app.post("/invoices/finalize", (req, res) => {
   }
   state.invoices.unshift(invoice);
   refreshInvoice(invoice);
-  persist();
+  await persist();
   ok(res, invoice, 201);
 });
 
@@ -268,12 +298,19 @@ app.get("/summary", (_req, res) => {
 app.get("/metrics", (_req, res) => {
   const finalized = state.invoices.filter((item) => item.status === "final");
   const revenue = parseMoney(finalized.reduce((sum, item) => sum + item.total, 0));
+  const collected = parseMoney(state.payments
+    .filter((item) => item.status !== "voided")
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0));
+  const expenses = movementTotal(state.movements, "expense");
   const roomNights = finalized.reduce((sum, item) => {
     const lodging = item.lines.find((line) => line.category === "Hospedaje");
     return sum + Number(lodging?.quantity || 0);
   }, 0);
   ok(res, {
     revenue,
+    collected,
+    expenses,
+    cashBalance: parseMoney(collected - expenses),
     averageTicket: finalized.length ? parseMoney(revenue / finalized.length) : 0,
     averageDailyRate: roomNights ? parseMoney(finalized.reduce((sum, item) => sum + Number(item.lines.find((line) => line.category === "Hospedaje")?.total || 0), 0) / roomNights) : 0,
     accountsReceivable: parseMoney(finalized.reduce((sum, item) => sum + refreshInvoice(item).balance, 0)),
@@ -284,7 +321,7 @@ app.get("/metrics", (_req, res) => {
 
 app.get("/shifts", (_req, res) => ok(res, { openShift: state.openShift, history: state.shifts }));
 
-app.post("/shifts/open", (req, res) => {
+app.post("/shifts/open", async (req, res) => {
   if (state.openShift) return fail(res, "Ya existe una caja abierta", 409);
   if (!req.body.shift || !req.body.responsible) return fail(res, "Turno y responsable son obligatorios", 422);
   state.openShift = {
@@ -297,11 +334,11 @@ app.post("/shifts/open", (req, res) => {
     status: "open",
     openedAt: now()
   };
-  persist();
+  await persist();
   ok(res, state.openShift, 201);
 });
 
-app.post("/shifts/close", (req, res) => {
+app.post("/shifts/close", async (req, res) => {
   if (!state.openShift) return fail(res, "No existe caja abierta", 404);
   const expected = parseMoney(state.openShift.initial + state.movements
     .filter((item) => item.method === "Efectivo" && item.shiftId === state.openShift.id)
@@ -318,7 +355,7 @@ app.post("/shifts/close", (req, res) => {
   };
   state.shifts.unshift(shift);
   state.openShift = null;
-  persist();
+  await persist();
   ok(res, shift);
 });
 

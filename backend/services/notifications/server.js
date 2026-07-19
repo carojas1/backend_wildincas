@@ -26,7 +26,7 @@ function normalizeLegacy(item) {
 }
 
 function persist() {
-  saveState("notifications", state);
+  return saveState("notifications", state);
 }
 
 function now() {
@@ -52,6 +52,8 @@ function sender() {
 
 async function sendViaBrevoApi(message) {
   if (!process.env.BREVO_API_KEY) throw new Error("BREVO_API_KEY no configurada");
+  const rawApiKey = String(process.env.BREVO_API_KEY).trim();
+  const apiKey = rawApiKey.startsWith("xkeysib-") ? rawApiKey : `xkeysib-${rawApiKey}`;
   const from = sender();
   if (!from.email) throw new Error("MAIL_FROM no contiene un remitente valido");
   const controller = new AbortController();
@@ -60,7 +62,7 @@ async function sendViaBrevoApi(message) {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       signal: controller.signal,
-      headers: { "Content-Type": "application/json", "api-key": process.env.BREVO_API_KEY },
+      headers: { "Content-Type": "application/json", "api-key": apiKey },
       body: JSON.stringify({
         sender: from,
         to: [{ email: message.to, name: message.recipientName || message.to }],
@@ -99,7 +101,7 @@ async function attempt(job) {
   job.lastAttemptAt = now();
   job.status = "sending";
   job.error = "";
-  persist();
+  await persist();
   const message = buildMessage(job.eventType, job.to, job.payload, job.idempotencyKey);
   const errors = [];
   const providers = configuredProviders();
@@ -107,7 +109,7 @@ async function attempt(job) {
     job.status = "configuration_error";
     job.error = "Configura BREVO_API_KEY en Render y verifica MAIL_FROM en Brevo";
     job.nextAttemptAt = null;
-    persist();
+    await persist();
     return job;
   }
   for (const provider of providers) {
@@ -119,7 +121,7 @@ async function attempt(job) {
       job.sentAt = now();
       job.nextAttemptAt = null;
       job.error = "";
-      persist();
+      await persist();
       return job;
     } catch (error) {
       errors.push(error.name === "AbortError" ? "Tiempo de espera agotado" : error.message);
@@ -130,7 +132,7 @@ async function attempt(job) {
   job.nextAttemptAt = job.status === "pending_retry"
     ? new Date(Date.now() + Math.min(30, 2 ** job.attempts) * 60000).toISOString()
     : null;
-  persist();
+  await persist();
   return job;
 }
 
@@ -161,7 +163,7 @@ function scheduleAttempt(job) {
       job.status = "pending_retry";
       job.error = error.message;
       job.nextAttemptAt = new Date(Date.now() + 60000).toISOString();
-      persist();
+      await persist();
     } finally {
       inFlight.delete(job.id);
     }
@@ -187,7 +189,7 @@ async function enqueue({ eventType, to, idempotencyKey, payload }) {
     nextAttemptAt: now()
   };
   state.jobs.unshift(job);
-  persist();
+  await persist();
   scheduleAttempt(job);
   return job;
 }
@@ -250,7 +252,7 @@ app.post("/events/:id/retry", async (req, res) => {
   job.status = "queued";
   job.nextAttemptAt = now();
   job.error = "";
-  persist();
+  await persist();
   scheduleAttempt(job);
   ok(res, job, 202);
 });
@@ -329,9 +331,16 @@ function buildMessage(eventType, to, payload, idempotencyKey) {
       title: `Factura ${invoice.number}`,
       subject: `Factura final ${invoice.number} - Wild Incas`,
       intro: `Gracias por hospedarte con nosotros, ${escapeHtml(name)}. Esta es tu factura definitiva.`,
-      rows: [["Factura", invoice.number], ["Reserva", reservation.code], ["Habitacion", reservation.roomId], ["Entrada", reservation.checkIn], ["Salida", reservation.checkOut], ["Estado de pago", invoice.paymentStatus]],
+      rows: [["Factura", invoice.number], ["Reserva", reservation.code || invoice.reservationCode], ["Habitacion", `${reservation.roomId || invoice.roomId} / ${invoice.roomType || reservation.roomType || "Hospedaje"}`], ["Entrada", reservation.checkIn || invoice.checkIn], ["Salida", reservation.checkOut || invoice.checkOut], ["Noches", invoice.nights || reservation.nights || 1], ["Estado de pago", invoice.paymentStatus]],
+      customer: {
+        name: guest.name || invoice.guest?.name || "Consumidor final",
+        document: guest.documentNumber || invoice.guest?.documentNumber || "No registrado",
+        email: guest.email || invoice.guest?.email || to,
+        phone: guest.phone || invoice.guest?.phone || "No registrado"
+      },
       lines: invoice.lines,
       total: invoice.total,
+      paid: invoice.paid,
       balance: invoice.balance
     },
     "employee-welcome": {
@@ -370,15 +379,16 @@ function reservationRows(reservation) {
 }
 
 function emailHtml(content, eventId) {
-  const rows = (content.rows || []).map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || "-")}</td></tr>`).join("");
-  const lines = (content.lines || []).map((line) => `<tr><td>${escapeHtml(line.description)}</td><td class="center">${line.quantity}</td><td class="money">$${parseMoney(line.unitPrice).toFixed(2)}</td><td class="money">$${parseMoney(line.total).toFixed(2)}</td></tr>`).join("");
-  const detailTable = content.lines?.length ? `<table><thead><tr><th>Detalle</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${lines}</tbody></table>` : "";
-  const total = content.total !== undefined ? `<div class="total"><span>Total</span><strong>$${parseMoney(content.total).toFixed(2)}</strong></div>` : "";
-  const balance = content.balance > 0 ? `<p class="pending">Saldo pendiente: $${parseMoney(content.balance).toFixed(2)}</p>` : "";
+  const rows = (content.rows || []).map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value ?? "-")}</td></tr>`).join("");
+  const lines = (content.lines || []).map((line) => `<tr><td><strong>${escapeHtml(line.description)}</strong><small>${escapeHtml(line.category || "Servicio")}</small></td><td class="center">${Number(line.quantity || 0)}</td><td class="money">$${parseMoney(line.unitPrice).toFixed(2)}</td><td class="money"><strong>$${parseMoney(line.total).toFixed(2)}</strong></td></tr>`).join("");
+  const detailTable = content.lines?.length ? `<div class="section-title"><span>Detalle facturado</span><small>Valores en USD</small></div><table class="detail"><thead><tr><th>Detalle</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${lines}</tbody></table>` : "";
+  const customer = content.customer ? `<div class="customer"><div><small>Huesped / cliente</small><strong>${escapeHtml(content.customer.name)}</strong><span>Documento: ${escapeHtml(content.customer.document)}</span></div><div><small>Contacto</small><strong>${escapeHtml(content.customer.email)}</strong><span>${escapeHtml(content.customer.phone)}</span></div></div>` : "";
+  const totals = content.total !== undefined ? `<div class="totals"><p><span>Subtotal / total</span><strong>$${parseMoney(content.total).toFixed(2)}</strong></p>${content.paid !== undefined ? `<p><span>Pagado</span><strong>$${parseMoney(content.paid).toFixed(2)}</strong></p>` : ""}<p class="grand"><span>Saldo</span><strong>$${parseMoney(content.balance || 0).toFixed(2)}</strong></p></div>` : "";
+  const balance = content.balance > 0 ? `<p class="pending">Este comprobante mantiene un saldo pendiente de $${parseMoney(content.balance).toFixed(2)}.</p>` : content.total !== undefined ? `<p class="paid">Pago registrado. No existen valores pendientes en este comprobante.</p>` : "";
   const link = content.link ? `<p><a class="button" href="${escapeHtml(content.link)}">Ingresar al sistema</a></p>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>
-    body{margin:0;background:#f2f5f2;color:#26332f;font-family:Arial,sans-serif;padding:28px 12px}.wrap{max-width:700px;margin:auto;background:#fff;border:1px solid #dbe4dd}.head{background:#173f37;color:#fff;padding:30px}.head small{color:#d8be80;font-weight:700}.head h1{margin:8px 0 0;font-size:28px}.content{padding:30px}.intro{font-size:16px;line-height:1.6}table{width:100%;border-collapse:collapse;margin:22px 0}th,td{padding:12px;border-bottom:1px solid #e4e9e5;text-align:left}th{color:#65736d;font-size:12px;text-transform:uppercase}.money{text-align:right}.center{text-align:center}.total{display:flex;justify-content:space-between;background:#eef4f0;padding:18px;margin-top:20px;font-size:20px;color:#173f37}.pending{color:#a54848;font-weight:700}.button{display:inline-block;background:#173f37;color:#fff!important;padding:12px 18px;text-decoration:none}.foot{padding:18px 30px;border-top:1px solid #e4e9e5;color:#738079;font-size:12px}.event{font-family:monospace}
-  </style></head><body><div class="wrap"><div class="head"><small>WILD INCAS BACKPACKERS HOSTAL</small><h1>${escapeHtml(content.title)}</h1></div><div class="content"><p class="intro">${content.intro}</p>${rows ? `<table><tbody>${rows}</tbody></table>` : ""}${detailTable}${total}${balance}${link}</div><div class="foot">Comprobante generado por SIMOT. ID unico: <span class="event">${escapeHtml(eventId)}</span></div></div></body></html>`;
+    body{margin:0;background:#eef2f0;color:#20302b;font-family:Arial,sans-serif;padding:28px 10px}.wrap{max-width:720px;margin:auto;background:#fff;border:1px solid #d5ded9;box-shadow:0 12px 36px rgba(16,47,42,.08)}.head{background:#123f36;color:#fff;padding:28px 30px;border-bottom:5px solid #d5b978}.brand{display:table;width:100%}.mark,.brand-copy,.document{display:table-cell;vertical-align:middle}.mark{width:54px;height:54px;background:#d5b978;color:#123f36;text-align:center;font:bold 18px Georgia,serif}.brand-copy{padding-left:14px}.brand-copy strong,.brand-copy span{display:block}.brand-copy strong{font:700 24px Georgia,serif}.brand-copy span{margin-top:4px;color:#bcd0ca;font-size:11px;text-transform:uppercase}.document{text-align:right}.document small{display:block;color:#d5b978;font-weight:700}.document b{display:block;margin-top:6px;font-size:20px}.content{padding:28px 30px}.intro{margin:0 0 20px;font-size:16px;line-height:1.6}.customer{display:table;width:100%;background:#f0f5f2;border:1px solid #dce5e0;margin-bottom:18px}.customer>div{display:table-cell;width:50%;padding:14px 16px}.customer small,.customer strong,.customer span{display:block}.customer small{color:#68766f;font-size:10px;font-weight:700;text-transform:uppercase}.customer strong{margin:5px 0;font-size:14px}.customer span{color:#64716c;font-size:12px}table{width:100%;border-collapse:collapse;margin:0 0 22px}th,td{padding:11px 10px;border-bottom:1px solid #e0e7e3;text-align:left;font-size:12px}th{color:#65736d;font-size:10px;text-transform:uppercase}.detail thead{background:#123f36;color:#fff}.detail thead th{color:#e8f0ed}.detail td small{display:block;margin-top:3px;color:#78847f}.money{text-align:right}.center{text-align:center}.section-title{display:flex;justify-content:space-between;margin:24px 0 8px;color:#233b34;font-size:11px;font-weight:700;text-transform:uppercase}.section-title small{color:#7b8882}.totals{width:310px;max-width:100%;margin:18px 0 18px auto;border-top:2px solid #123f36}.totals p{display:flex;justify-content:space-between;margin:0;padding:10px 4px;border-bottom:1px solid #dfe6e2;font-size:13px}.totals .grand{font-size:18px;color:#123f36}.pending,.paid{padding:12px 14px;font-size:13px;font-weight:700}.pending{background:#f8eded;color:#954646}.paid{background:#e8f4ed;color:#256a4d}.button{display:inline-block;background:#123f36;color:#fff!important;padding:12px 18px;text-decoration:none}.foot{padding:18px 30px;border-top:1px solid #dfe6e2;background:#f0f5f2;color:#68766f;font-size:11px;line-height:1.5}.event{font-family:monospace}@media(max-width:560px){body{padding:0}.head,.content,.foot{padding:22px 18px}.mark{width:44px;height:44px}.brand-copy strong{font-size:20px}.document{display:block;text-align:left;padding-top:18px}.customer,.customer>div{display:block;width:auto}.customer>div+div{border-top:1px solid #dce5e0}th,td{padding:9px 5px;font-size:11px}}
+  </style></head><body><div class="wrap"><div class="head"><div class="brand"><div class="mark">WI</div><div class="brand-copy"><strong>Wild Incas</strong><span>Backpackers Hostal / Cuenca, Ecuador</span></div><div class="document"><small>DOCUMENTO DIGITAL</small><b>${escapeHtml(content.title)}</b></div></div></div><div class="content"><p class="intro">${content.intro}</p>${customer}${rows ? `<table><tbody>${rows}</tbody></table>` : ""}${detailTable}${totals}${balance}${link}</div><div class="foot">Gracias por elegir Wild Incas. Documento generado por SIMOT.<br>ID unico de envio: <span class="event">${escapeHtml(eventId)}</span></div></div></body></html>`;
 }
 
 function parseSender(value) {

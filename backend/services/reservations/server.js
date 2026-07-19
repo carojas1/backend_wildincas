@@ -60,7 +60,7 @@ function normalizeState(value) {
 }
 
 function persist() {
-  saveState("reservations", state);
+  return saveState("reservations", state);
 }
 
 function now() {
@@ -198,7 +198,7 @@ app.get("/guests", (req, res) => {
   ok(res, data);
 });
 
-app.patch("/guests/:id", (req, res) => {
+app.patch("/guests/:id", async (req, res) => {
   const guest = state.guests.find((item) => item.id === req.params.id);
   if (!guest) return fail(res, "Huesped no encontrado", 404);
   for (const field of ["name", "documentType", "documentNumber", "email", "phone", "address", "country", "notes"]) {
@@ -206,7 +206,7 @@ app.patch("/guests/:id", (req, res) => {
   }
   if (!guest.name) return fail(res, "El nombre es obligatorio", 422);
   guest.updatedAt = now();
-  persist();
+  await persist();
   ok(res, guest);
 });
 
@@ -276,7 +276,7 @@ app.post("/reservations", async (req, res) => {
   };
   state.reservations.unshift(reservation);
   audit("reservation_created", reservation, req.body.actor || "Recepcion", `Hab. ${roomId}`);
-  persist();
+  await persist();
   if (startCheckedIn) {
     await serviceRequest("rooms", `/${roomId}/status`, { method: "PATCH", body: { status: "occupied", guestId: guest.id } }).catch(() => null);
   }
@@ -307,7 +307,7 @@ app.patch("/reservations/:id", async (req, res) => {
   reservation.lodgingSubtotal = parseMoney(nightsBetween(reservation.checkIn, reservation.checkOut) * reservation.nightlyRate);
   reservation.updatedAt = now();
   audit("reservation_updated", reservation, req.body.actor || "Recepcion");
-  persist();
+  await persist();
   const notification = await queueNotification("reservation-modified", reservation);
   ok(res, { reservation: reservationView(reservation), notification });
 });
@@ -320,7 +320,7 @@ app.post("/reservations/:id/check-in", async (req, res) => {
   reservation.checkedInAt = now();
   reservation.updatedAt = now();
   audit("check_in", reservation, req.body.actor || "Recepcion");
-  persist();
+  await persist();
   await serviceRequest("rooms", `/${reservation.roomId}/status`, {
     method: "PATCH",
     body: { status: "occupied", guestId: reservation.guestId }
@@ -329,7 +329,7 @@ app.post("/reservations/:id/check-in", async (req, res) => {
   ok(res, { reservation: reservationView(reservation), notification });
 });
 
-app.post("/reservations/:id/charges", (req, res) => {
+app.post("/reservations/:id/charges", async (req, res) => {
   const reservation = state.reservations.find((item) => item.id === req.params.id);
   if (!reservation) return fail(res, "Reserva no encontrada", 404);
   if (!activeReservation(reservation)) return fail(res, "No se pueden agregar consumos a una reserva cerrada", 409);
@@ -351,11 +351,11 @@ app.post("/reservations/:id/charges", (req, res) => {
   reservation.charges.push(charge);
   reservation.updatedAt = now();
   audit("charge_added", reservation, charge.createdBy, `${charge.description}: ${charge.total}`);
-  persist();
+  await persist();
   ok(res, { reservation: reservationView(reservation), charge }, 201);
 });
 
-app.delete("/reservations/:id/charges/:chargeId", (req, res) => {
+app.delete("/reservations/:id/charges/:chargeId", async (req, res) => {
   const reservation = state.reservations.find((item) => item.id === req.params.id);
   if (!reservation) return fail(res, "Reserva no encontrada", 404);
   const before = reservation.charges?.length || 0;
@@ -363,7 +363,7 @@ app.delete("/reservations/:id/charges/:chargeId", (req, res) => {
   if (reservation.charges.length === before) return fail(res, "Consumo no encontrado", 404);
   reservation.updatedAt = now();
   audit("charge_removed", reservation, req.body.actor || "Recepcion", req.params.chargeId);
-  persist();
+  await persist();
   ok(res, reservationView(reservation));
 });
 
@@ -372,6 +372,13 @@ app.post("/reservations/:id/payments", async (req, res) => {
   if (!reservation) return fail(res, "Reserva no encontrada", 404);
   const amount = parseMoney(req.body.amount);
   if (amount <= 0) return fail(res, "El pago debe ser mayor a cero", 422);
+  const payments = await serviceRequest("finance", `/payments?reservationId=${encodeURIComponent(reservation.id)}`);
+  const paid = parseMoney(payments
+    .filter((item) => item.status !== "voided")
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0));
+  const pending = parseMoney(Math.max(0, totals(reservation).total - paid));
+  if (pending <= 0) return fail(res, "La estadia ya esta pagada", 409);
+  if (amount > pending) return fail(res, `El pago supera el saldo pendiente de ${pending.toFixed(2)}`, 422);
   const payment = await serviceRequest("finance", "/payments", {
     method: "POST",
     body: {
@@ -390,7 +397,7 @@ app.post("/reservations/:id/payments", async (req, res) => {
   });
   reservation.updatedAt = now();
   audit("payment_registered", reservation, req.body.actor || "Caja", `${payment.id}: ${payment.amount}`);
-  persist();
+  await persist();
   const notification = await queueNotification("payment-confirmation", reservation, { payment, paymentId: payment.id });
   ok(res, { payment, notification }, 201);
 });
@@ -407,11 +414,14 @@ app.post("/reservations/:id/checkout", async (req, res) => {
       reservationCode: reservation.code,
       guest: state.guests.find((item) => item.id === reservation.guestId),
       roomId: reservation.roomId,
+      roomType: reservation.roomType,
       checkIn: reservation.checkIn,
       checkOut: reservation.checkOut,
+      nights: nightsBetween(reservation.checkIn, reservation.checkOut),
       lines: summary.lines,
       taxRate: 0,
       notes: req.body.notes || "Factura final de hospedaje",
+      issuedBy: req.body.actor || "Recepcion",
       idempotencyKey: `invoice-final:${reservation.id}`
     }
   });
@@ -421,7 +431,7 @@ app.post("/reservations/:id/checkout", async (req, res) => {
   reservation.invoiceNumber = invoice.number;
   reservation.updatedAt = now();
   audit("checkout", reservation, req.body.actor || "Recepcion", invoice.number);
-  persist();
+  await persist();
   await serviceRequest("rooms", `/${reservation.roomId}/cleaning`, {
     method: "POST",
     body: { notes: `Salida ${reservation.code}. Limpieza completa y revision de inventario.` }
@@ -439,7 +449,7 @@ app.post("/reservations/:id/cancel", async (req, res) => {
   reservation.cancelledAt = now();
   reservation.updatedAt = now();
   audit("reservation_cancelled", reservation, req.body.actor || "Recepcion", reservation.cancellationReason);
-  persist();
+  await persist();
   const notification = await queueNotification("reservation-cancelled", reservation);
   ok(res, { reservation: reservationView(reservation), notification });
 });

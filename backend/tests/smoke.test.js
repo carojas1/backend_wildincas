@@ -129,6 +129,22 @@ async function main() {
   });
   assert.equal(paymentResult.data.payment.change, 10);
 
+  const duplicatePayment = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/payments`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ amount: 30, received: 40, method: "Efectivo", idempotencyKey: `smoke-payment-${reservation.id}` })
+  });
+  assert.equal(duplicatePayment.data.payment.id, paymentResult.data.payment.id);
+  const reservationPayments = await readJson(`http://127.0.0.1:8080/api/finance/payments?reservationId=${reservation.id}`, { headers: authHeaders });
+  assert.equal(reservationPayments.data.length, 1);
+
+  const overpayment = await fetch(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/payments`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ amount: 49, received: 49, method: "Efectivo", idempotencyKey: `smoke-overpayment-${reservation.id}` })
+  });
+  assert.equal(overpayment.status, 422);
+
   const checkout = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/checkout`, {
     method: "POST",
     headers: authHeaders,
