@@ -76,6 +76,23 @@ export function saveState(key, value) {
   return task;
 }
 
+export async function storeSummary(keys) {
+  if (!enabled()) return { enabled: false, stores: [] };
+  const stores = await Promise.all(keys.map(async (key) => {
+    const response = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1/${tableFor(key)}?select=id`, { headers: headers() });
+    if (!response.ok) throw new Error(`No se pudo inspeccionar ${key}: ${await response.text()}`);
+    const rows = await response.json();
+    return {
+      key,
+      table: tableFor(key),
+      rows: rows.length,
+      stateRows: rows.filter((row) => row.id === "state").length,
+      entityRows: rows.filter((row) => row.id !== "state").length
+    };
+  }));
+  return { enabled: true, stores };
+}
+
 async function persistSnapshot(key, value) {
   const updatedAt = new Date().toISOString();
   let isolatedError;

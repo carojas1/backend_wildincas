@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { nanoid } from "nanoid";
-import { loadState, saveState } from "../../shared/cloudStore.js";
+import { loadState, saveState, storeSummary } from "../../shared/cloudStore.js";
 import { createService, fail, ok } from "../../shared/service.js";
 
 const port = Number(process.env.AUTH_PORT || 7101);
@@ -57,6 +57,14 @@ app.post("/logout", (req, res) => {
 });
 
 app.get("/roles", (_req, res) => ok(res, roles));
+
+app.get("/storage", async (_req, res, next) => {
+  try {
+    ok(res, await storeSummary(["auth_users", "rooms", "reservations", "guests", "incidents", "checklist", "finance", "employees", "notifications"]));
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/users", (_req, res) => {
   ok(res, users.map(sanitize));

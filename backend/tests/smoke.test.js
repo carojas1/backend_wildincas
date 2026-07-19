@@ -96,6 +96,8 @@ async function main() {
 
   const rooms = await readJson("http://127.0.0.1:8080/api/rooms", { headers: authHeaders });
   assert.equal(rooms.data.length, 7);
+  const storage = await readJson("http://127.0.0.1:8080/api/auth/storage", { headers: authHeaders });
+  assert.equal(storage.data.enabled, false);
   const room202 = await readJson("http://127.0.0.1:8080/api/rooms/202", { headers: authHeaders });
   assert.equal(room202.data.rate, 35);
 
