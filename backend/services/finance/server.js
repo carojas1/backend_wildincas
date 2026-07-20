@@ -8,7 +8,7 @@ const port = Number(process.env.FINANCE_PORT || 7105);
 const { app, listen } = createService({
   name: "finance",
   port,
-  description: "Facturas, pagos, caja, ingresos, gastos y reportes contables"
+  description: "Notas de venta, pagos, caja, ingresos, gastos y reportes contables"
 });
 
 const loaded = await loadState("finance", {
@@ -200,8 +200,8 @@ function refreshInvoice(invoice) {
 
 function nextInvoiceNumber() {
   const year = new Date().getFullYear();
-  const count = state.invoices.filter((item) => String(item.number || "").startsWith(`FAC-${year}-`)).length + 1;
-  return `FAC-${year}-${String(count).padStart(5, "0")}`;
+  const count = state.invoices.filter((item) => String(item.number || "").startsWith(`NV-${year}-`)).length + 1;
+  return `NV-${year}-${String(count).padStart(5, "0")}`;
 }
 
 function openShiftView() {
@@ -269,13 +269,13 @@ app.post("/payments", async (req, res) => {
   const method = req.body.method || "Efectivo";
   if (amount <= 0) return fail(res, "El pago debe ser mayor a cero", 422);
   if (method === "Efectivo" && received < amount) return fail(res, "El efectivo recibido no cubre el pago", 422);
-  if (!req.body.reservationId && !req.body.invoiceId) return fail(res, "El pago debe pertenecer a una reserva o factura", 422);
+  if (!req.body.reservationId && !req.body.invoiceId) return fail(res, "El pago debe pertenecer a una reserva o nota de venta", 422);
   const invoice = req.body.invoiceId
     ? state.invoices.find((item) => item.id === req.body.invoiceId)
     : state.invoices.find((item) => item.reservationId === req.body.reservationId);
   if (invoice) {
     refreshInvoice(invoice);
-    if (invoice.balance <= 0) return fail(res, "La factura ya esta pagada", 409);
+    if (invoice.balance <= 0) return fail(res, "La nota de venta ya esta pagada", 409);
     if (amount > invoice.balance) return fail(res, `El pago supera el saldo pendiente de ${invoice.balance.toFixed(2)}`, 422);
   }
   const payment = {
@@ -351,7 +351,7 @@ app.get("/invoices", (req, res) => {
 
 app.get("/invoices/:id", (req, res) => {
   const invoice = state.invoices.find((item) => item.id === req.params.id);
-  if (!invoice) return fail(res, "Factura no encontrada", 404);
+  if (!invoice) return fail(res, "Nota de venta no encontrada", 404);
   ok(res, { ...refreshInvoice(invoice), payments: invoicePayments(invoice) });
 });
 
@@ -487,11 +487,11 @@ app.get("/shifts", (_req, res) => ok(res, { openShift: openShiftView(), history:
 
 app.post("/shifts/open", async (req, res) => {
   if (state.openShift) return fail(res, "Ya existe una caja abierta", 409);
-  if (!req.body.shift || !req.body.responsible) return fail(res, "Turno y responsable son obligatorios", 422);
+  if (!req.body.responsible) return fail(res, "El responsable es obligatorio", 422);
   state.openShift = {
     id: nanoid(9),
     date: today(),
-    shift: req.body.shift,
+    shift: req.body.shift || "Jornada 24/7",
     responsible: req.body.responsible,
     initial: parseMoney(req.body.initial),
     notes: req.body.notes || "",
@@ -560,7 +560,7 @@ function createWorkbook({ from, to, reservations, rooms }) {
     ["Utilidad", analytics.summary.profit],
     ["Cobrado", analytics.summary.collected],
     ["Cuentas pendientes", analytics.summary.accountsReceivable],
-    ["Facturas finales", analytics.summary.invoices],
+    ["Notas de venta finales", analytics.summary.invoices],
     ["Estadias", analytics.summary.reservations],
     ["Huespedes unicos", analytics.summary.guests],
     ["Noches vendidas", analytics.summary.roomNights],
@@ -606,17 +606,17 @@ function createWorkbook({ from, to, reservations, rooms }) {
     ["Finalizado por", "finalizedBy"], ["Fecha finalizacion", "finalizedAt"], ["Notas", "notes"]
   ], stayRows);
 
-  addDataSheet(workbook, "Facturas", [
+  addDataSheet(workbook, "Notas de venta", [
     ["Numero", "number"], ["Fecha", "issuedAt"], ["Reserva", "reservationCode"], ["Cliente", "guest.name"],
     ["Documento", "guest.documentNumber"], ["Habitacion", "roomId"], ["Entrada", "checkIn"], ["Salida", "checkOut"],
     ["Subtotal", "subtotal"], ["Impuesto", "tax"], ["Total", "total"], ["Pagado", "paid"], ["Saldo", "balance"], ["Estado pago", "paymentStatus"],
     ["Emitida por", "issuedBy"]
   ], analytics.invoices);
   addDataSheet(workbook, "Detalles", [
-    ["Factura", "invoiceNumber"], ["Categoria", "category"], ["Descripcion", "description"], ["Cantidad", "quantity"], ["Precio unitario", "unitPrice"], ["Total", "total"]
+    ["Nota de venta", "invoiceNumber"], ["Categoria", "category"], ["Descripcion", "description"], ["Cantidad", "quantity"], ["Precio unitario", "unitPrice"], ["Total", "total"]
   ], state.invoices.filter((invoice) => invoiceIds.has(invoice.id)).flatMap((invoice) => invoice.lines.map((line) => ({ invoiceNumber: invoice.number, ...line }))));
   addDataSheet(workbook, "Pagos", [
-    ["Fecha", "createdAt"], ["Factura", "invoiceNumber"], ["Reserva", "reservationCode"], ["Cliente", "guestName"], ["Habitacion", "roomId"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Recibido", "received"], ["Cambio", "change"], ["Estado", "status"], ["Motivo anulacion", "voidReason"]
+    ["Fecha", "createdAt"], ["Nota de venta", "invoiceNumber"], ["Reserva", "reservationCode"], ["Cliente", "guestName"], ["Habitacion", "roomId"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Recibido", "received"], ["Cambio", "change"], ["Estado", "status"], ["Motivo anulacion", "voidReason"]
   ], state.payments.filter((item) => inPeriod(item.createdAt, from, to)));
   addDataSheet(workbook, "Ingresos y gastos", [
     ["Fecha", "date"], ["Tipo", "type"], ["Categoria", "category"], ["Concepto", "concept"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Notas", "notes"], ["Estado", "status"], ["Motivo anulacion", "voidReason"]

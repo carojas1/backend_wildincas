@@ -522,6 +522,12 @@ app.post("/reservations/:id/checkout", async (req, res) => {
   if (!reservation) return fail(res, "Reserva no encontrada", 404);
   if (reservation.status !== "checked_in") return fail(res, "La estadia debe estar activa para hacer checkout", 409);
   const summary = totals(reservation);
+  const payments = await serviceRequest("finance", `/payments?reservationId=${encodeURIComponent(reservation.id)}`);
+  const paid = parseMoney(payments
+    .filter((item) => item.status !== "voided")
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0));
+  const pending = parseMoney(Math.max(0, summary.total - paid));
+  if (pending > 0) return fail(res, `Registra primero el saldo pendiente de ${pending.toFixed(2)} antes de marcar la salida`, 409);
   const invoice = await serviceRequest("finance", "/invoices/finalize", {
     method: "POST",
     body: {
@@ -535,7 +541,7 @@ app.post("/reservations/:id/checkout", async (req, res) => {
       nights: nightsBetween(reservation.checkIn, reservation.checkOut),
       lines: summary.lines,
       taxRate: 0,
-      notes: req.body.notes || "Factura final de hospedaje",
+      notes: req.body.notes || "Nota de venta final de hospedaje",
       issuedBy: req.body.actor || "Recepcion",
       idempotencyKey: `invoice-final:${reservation.id}`
     }
@@ -548,12 +554,22 @@ app.post("/reservations/:id/checkout", async (req, res) => {
   reservation.updatedAt = now();
   audit("checkout", reservation, req.body.actor || "Recepcion", invoice.number);
   await persist();
-  await serviceRequest("rooms", `/${reservation.roomId}/cleaning`, {
-    method: "POST",
-    body: { notes: `Salida ${reservation.code}. Limpieza completa y revision de inventario.` }
-  }).catch((error) => ({ error: error.message }));
+  let cleaning = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      cleaning = await serviceRequest("rooms", `/${reservation.roomId}/cleaning`, {
+        method: "POST",
+        body: { notes: `Salida ${reservation.code}. Limpieza completa y revision de inventario.` },
+        timeoutMs: 12000
+      });
+      break;
+    } catch (error) {
+      cleaning = { status: "retry_required", error: error.message, attempts: attempt };
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+    }
+  }
   const notification = await queueNotification("invoice-finalized", reservation, { invoice, invoiceId: invoice.id });
-  ok(res, { reservation: reservationView(reservation), invoice, notification });
+  ok(res, { reservation: reservationView(reservation), invoice, notification, cleaning });
 });
 
 app.post("/reservations/:id/cancel", async (req, res) => {

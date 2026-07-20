@@ -330,10 +330,10 @@ function buildMessage(eventType, to, payload, idempotencyKey) {
       total: payment.amount
     },
     "invoice-finalized": {
-      title: `Factura ${invoice.number}`,
-      subject: `Factura final ${invoice.number} - Wild Incas`,
-      intro: `Gracias por hospedarte con nosotros, ${escapeHtml(name)}. Esta es tu factura definitiva.`,
-      rows: [["Factura", invoice.number], ["Reserva", reservation.code || invoice.reservationCode], ["Habitacion", `${reservation.roomId || invoice.roomId} / ${invoice.roomType || reservation.roomType || "Hospedaje"}`], ["Entrada", reservation.checkIn || invoice.checkIn], ["Salida", reservation.checkOut || invoice.checkOut], ["Noches", invoice.nights || reservation.nights || 1], ["Estado de pago", invoice.paymentStatus]],
+      title: `Nota de venta ${invoice.number}`,
+      subject: `Nota de venta ${invoice.number} - Wild Incas`,
+      intro: `Gracias por hospedarte con nosotros, ${escapeHtml(name)}. Este es el detalle definitivo de tu estadia.`,
+      rows: [["Nota de venta", invoice.number], ["Reserva", reservation.code || invoice.reservationCode], ["Habitacion", `${reservation.roomId || invoice.roomId} / ${invoice.roomType || reservation.roomType || "Hospedaje"}`], ["Entrada", reservation.checkIn || invoice.checkIn], ["Salida", reservation.checkOut || invoice.checkOut], ["Noches", invoice.nights || reservation.nights || 1], ["Estado de pago", invoice.paymentStatus]],
       customer: {
         name: guest.name || invoice.guest?.name || "Consumidor final",
         document: guest.documentNumber || invoice.guest?.documentNumber || "No registrado",
@@ -383,7 +383,7 @@ function reservationRows(reservation) {
 function emailHtml(content, eventId) {
   const rows = (content.rows || []).map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value ?? "-")}</td></tr>`).join("");
   const lines = (content.lines || []).map((line) => `<tr><td><strong>${escapeHtml(line.description)}</strong><small>${escapeHtml(line.category || "Servicio")}</small></td><td class="center">${Number(line.quantity || 0)}</td><td class="money">$${parseMoney(line.unitPrice).toFixed(2)}</td><td class="money"><strong>$${parseMoney(line.total).toFixed(2)}</strong></td></tr>`).join("");
-  const detailTable = content.lines?.length ? `<div class="section-title"><span>Detalle facturado</span><small>Valores en USD</small></div><table class="detail"><thead><tr><th>Detalle</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${lines}</tbody></table>` : "";
+  const detailTable = content.lines?.length ? `<div class="section-title"><span>Detalle de la estadia</span><small>Valores en USD</small></div><table class="detail"><thead><tr><th>Detalle</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${lines}</tbody></table>` : "";
   const customer = content.customer ? `<div class="customer"><div><small>Huesped / cliente</small><strong>${escapeHtml(content.customer.name)}</strong><span>Documento: ${escapeHtml(content.customer.document)}</span></div><div><small>Contacto</small><strong>${escapeHtml(content.customer.email)}</strong><span>${escapeHtml(content.customer.phone)}</span></div></div>` : "";
   const totals = content.total !== undefined ? `<div class="totals"><p><span>Subtotal / total</span><strong>$${parseMoney(content.total).toFixed(2)}</strong></p>${content.paid !== undefined ? `<p><span>Pagado</span><strong>$${parseMoney(content.paid).toFixed(2)}</strong></p>` : ""}<p class="grand"><span>Saldo</span><strong>$${parseMoney(content.balance || 0).toFixed(2)}</strong></p></div>` : "";
   const balance = content.balance > 0 ? `<p class="pending">Este comprobante mantiene un saldo pendiente de $${parseMoney(content.balance).toFixed(2)}.</p>` : content.total !== undefined ? `<p class="paid">Pago registrado. No existen valores pendientes en este comprobante.</p>` : "";

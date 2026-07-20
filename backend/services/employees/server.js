@@ -21,8 +21,52 @@ app.get("/", (req, res) => {
 });
 
 app.get("/current-shift", (_req, res) => {
-  ok(res, employees.find((item) => item.shift === "Tarde") || employees[0]);
+  ok(res, employees.find((item) => item.attendance?.active) || null);
 });
+
+app.get("/attendance/me", (req, res) => {
+  const username = String(req.headers["x-user-username"] || "").trim();
+  const employee = employees.find((item) => item.username === username);
+  if (!employee) return ok(res, { employee: null, active: false, history: [] });
+  const attendance = normalizeAttendance(employee);
+  ok(res, { employee: { id: employee.id, name: employee.name, username: employee.username }, ...attendance });
+});
+
+app.post("/attendance/me", async (req, res) => {
+  const username = String(req.headers["x-user-username"] || "").trim();
+  const employee = employees.find((item) => item.username === username);
+  if (!employee) return fail(res, "Tu cuenta no esta vinculada a un empleado", 404);
+  const attendance = normalizeAttendance(employee);
+  const action = req.body.action || (attendance.active ? "clock_out" : "clock_in");
+  if (action === "clock_in") {
+    if (attendance.active) return fail(res, "Tu jornada ya esta iniciada", 409);
+    attendance.active = { id: nanoid(9), startedAt: new Date().toISOString(), notes: req.body.notes || "" };
+  } else if (action === "clock_out") {
+    if (!attendance.active) return fail(res, "No tienes una jornada activa", 409);
+    const completed = {
+      ...attendance.active,
+      endedAt: new Date().toISOString(),
+      exitNotes: req.body.notes || "",
+      durationMinutes: Math.max(0, Math.round((Date.now() - new Date(attendance.active.startedAt).getTime()) / 60000))
+    };
+    attendance.history.unshift(completed);
+    attendance.active = null;
+  } else {
+    return fail(res, "Accion de asistencia no valida", 422);
+  }
+  employee.attendance = attendance;
+  await persist();
+  ok(res, { employee: { id: employee.id, name: employee.name, username: employee.username }, ...attendance });
+});
+
+function normalizeAttendance(employee) {
+  const value = employee.attendance || {};
+  employee.attendance = {
+    active: value.active || null,
+    history: Array.isArray(value.history) ? value.history : []
+  };
+  return employee.attendance;
+}
 
 app.post("/", async (req, res) => {
   if (!req.body.name || !req.body.email || !req.body.username) return fail(res, "Nombre, correo y usuario son obligatorios", 422);

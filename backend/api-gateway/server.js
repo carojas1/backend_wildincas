@@ -131,6 +131,12 @@ for (const [path, serviceName] of Object.entries(routes)) {
       const upstreamPath = req.originalUrl.replace(path, "") || "/";
       const headers = { "Content-Type": "application/json" };
       if (req.headers.authorization) headers.Authorization = req.headers.authorization;
+      if (authorization.user) {
+        headers["X-User-Id"] = authorization.user.id || "";
+        headers["X-User-Name"] = authorization.user.name || "";
+        headers["X-User-Username"] = authorization.user.username || "";
+        headers["X-User-Role"] = authorization.user.roleId || authorization.user.role || "";
+      }
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), upstreamTimeoutMs);
       const response = await fetch(`${target}${upstreamPath}`, {
@@ -164,8 +170,9 @@ async function authorize(req, path, serviceName) {
     if (!response.ok || payload.ok === false) return { allowed: false, status: 401, message: "La sesion ya no es valida" };
     const user = payload.data;
     const modules = Array.isArray(user.modules) ? user.modules : [];
-    if (modules.includes("all")) return { allowed: true, user };
+    if (user.roleId === "admin" || user.role === "Administrador" || modules.includes("all")) return { allowed: true, user };
     if (serviceName === "auth" && ["/me", "/logout"].includes(subpath)) return { allowed: true, user };
+    if (serviceName === "employees" && subpath.startsWith("/attendance/me")) return { allowed: true, user };
     const required = requiredModule(serviceName, subpath);
     return modules.includes(required)
       ? { allowed: true, user }

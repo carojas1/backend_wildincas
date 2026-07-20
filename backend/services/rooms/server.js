@@ -72,12 +72,13 @@ app.post("/", async (req, res) => {
     id: String(req.body.id || nanoid(6)).trim(),
     floor: Number(req.body.floor || 1),
     type: req.body.type || "Habitacion Privada",
+    bedConfiguration: req.body.bedConfiguration || "Sin especificar",
     capacity: Number(req.body.capacity || 1),
     rate: Number(req.body.rate || 0),
     status: allowedStatuses.includes(req.body.status) ? req.body.status : "available",
     lastCleaned: req.body.lastCleaned || new Date().toISOString().slice(0, 10),
     notes: req.body.notes || "",
-    amenities: req.body.amenities || []
+    amenities: Array.isArray(req.body.amenities) ? req.body.amenities : []
   };
   if (!room.id) return fail(res, "El numero de habitacion es obligatorio", 422);
   if (room.rate < 0 || room.capacity < 1) return fail(res, "Capacidad y tarifa no validas", 422);
@@ -94,8 +95,12 @@ app.patch("/:id", async (req, res) => {
   const nextStatus = req.body.status === undefined ? room.status : req.body.status;
   if (!allowedStatuses.includes(nextStatus)) return fail(res, "Estado de habitacion no valido", 422);
   if (room.status === "occupied" && !(await ensureRoomCanLeaveOccupiedState(room, nextStatus, res))) return;
-  for (const field of ["type", "status", "lastCleaned", "notes", "guestId", "housekeepingNotes"]) {
+  for (const field of ["type", "bedConfiguration", "status", "lastCleaned", "notes", "guestId", "housekeepingNotes"]) {
     if (req.body[field] !== undefined) room[field] = req.body[field];
+  }
+  if (req.body.amenities !== undefined) {
+    if (!Array.isArray(req.body.amenities)) return fail(res, "Los servicios de la habitacion no son validos", 422);
+    room.amenities = req.body.amenities;
   }
   for (const field of ["floor", "capacity", "rate"]) {
     if (req.body[field] !== undefined) room[field] = Number(req.body[field]);

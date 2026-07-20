@@ -98,8 +98,9 @@ async function main() {
   assert.equal(rooms.data.length, 7);
   const storage = await readJson("http://127.0.0.1:8080/api/auth/storage", { headers: authHeaders });
   assert.equal(storage.data.enabled, false);
-  const room202 = await readJson("http://127.0.0.1:8080/api/rooms/202", { headers: authHeaders });
-  assert.equal(room202.data.rate, 35);
+  const room2 = await readJson("http://127.0.0.1:8080/api/rooms/2", { headers: authHeaders });
+  assert.equal(room2.data.rate, 35);
+  assert.equal(room2.data.amenities.includes("Wi-Fi"), true);
 
   const missingRoomReservation = await fetch("http://127.0.0.1:8080/api/reservations/reservations", {
     method: "POST",
@@ -117,7 +118,7 @@ async function main() {
   await readJson("http://127.0.0.1:8080/api/finance/shifts/open", {
     method: "POST",
     headers: authHeaders,
-    body: JSON.stringify({ shift: "Tarde", responsible: "Prueba automatizada", initial: 100 })
+    body: JSON.stringify({ responsible: "Prueba automatizada", initial: 100 })
   });
 
   const reservationResult = await readJson("http://127.0.0.1:8080/api/reservations/reservations", {
@@ -128,8 +129,8 @@ async function main() {
       documentType: "Cedula",
       documentNumber: "TEST-001",
       email: "test@example.com",
-      roomId: "202",
-      roomType: "Habitacion Privada",
+      roomId: "2",
+      roomType: "Habitacion matrimonial",
       checkIn: "2027-01-10",
       checkOut: "2027-01-12",
       nightlyRate: 35,
@@ -139,14 +140,14 @@ async function main() {
   const reservation = reservationResult.data.reservation;
   assert.equal(reservation.total, 70);
 
-  const occupiedCleaning = await fetch("http://127.0.0.1:8080/api/rooms/202/cleaning", {
+  const occupiedCleaning = await fetch("http://127.0.0.1:8080/api/rooms/2/cleaning", {
     method: "POST",
     headers: authHeaders,
     body: JSON.stringify({ notes: "No debe permitirse con huesped activo" })
   });
   assert.equal(occupiedCleaning.status, 409);
 
-  await readJson("http://127.0.0.1:8080/api/rooms/302/status", {
+  await readJson("http://127.0.0.1:8080/api/rooms/4/status", {
     method: "PATCH",
     headers: authHeaders,
     body: JSON.stringify({ status: "maintenance" })
@@ -154,11 +155,11 @@ async function main() {
   const blockedMove = await fetch(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}`, {
     method: "PATCH",
     headers: authHeaders,
-    body: JSON.stringify({ roomId: "302", actor: "Prueba automatizada" })
+    body: JSON.stringify({ roomId: "4", actor: "Prueba automatizada" })
   });
   assert.equal(blockedMove.status, 409);
 
-  await readJson("http://127.0.0.1:8080/api/rooms/302/status", {
+  await readJson("http://127.0.0.1:8080/api/rooms/4/status", {
     method: "PATCH",
     headers: authHeaders,
     body: JSON.stringify({ status: "available" })
@@ -166,12 +167,12 @@ async function main() {
   const movedReservation = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}`, {
     method: "PATCH",
     headers: authHeaders,
-    body: JSON.stringify({ roomId: "302", roomType: "Habitacion Privada", actor: "Prueba automatizada" })
+    body: JSON.stringify({ roomId: "4", roomType: "Habitacion doble", actor: "Prueba automatizada" })
   });
-  assert.equal(movedReservation.data.reservation.roomId, "302");
+  assert.equal(movedReservation.data.reservation.roomId, "4");
   const roomsAfterMove = await readJson("http://127.0.0.1:8080/api/rooms", { headers: authHeaders });
-  assert.equal(roomsAfterMove.data.find((item) => item.id === "202").status, "cleaning");
-  assert.equal(roomsAfterMove.data.find((item) => item.id === "302").status, "occupied");
+  assert.equal(roomsAfterMove.data.find((item) => item.id === "2").status, "cleaning");
+  assert.equal(roomsAfterMove.data.find((item) => item.id === "4").status, "occupied");
 
   await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/charges`, {
     method: "POST",
@@ -204,14 +205,32 @@ async function main() {
   });
   assert.equal(overpayment.status, 422);
 
+  const checkoutWithBalance = await fetch(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/checkout`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ actor: "Prueba automatizada" })
+  });
+  assert.equal(checkoutWithBalance.status, 409);
+
+  const finalPayment = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/payments`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ amount: 48, received: 48, method: "Transferencia", idempotencyKey: `smoke-final-payment-${reservation.id}` })
+  });
+  assert.equal(finalPayment.data.payment.amount, 48);
+
   const checkout = await readJson(`http://127.0.0.1:8080/api/reservations/reservations/${reservation.id}/checkout`, {
     method: "POST",
     headers: authHeaders,
     body: JSON.stringify({ actor: "Prueba automatizada" })
   });
   assert.equal(checkout.data.invoice.total, 78);
-  assert.equal(checkout.data.invoice.balance, 48);
-  assert.equal(checkout.data.invoice.roomId, "302");
+  assert.equal(checkout.data.invoice.balance, 0);
+  assert.equal(checkout.data.invoice.roomId, "4");
+  assert.equal(checkout.data.invoice.number.startsWith("NV-"), true);
+  assert.equal(checkout.data.cleaning.status, "cleaning");
+  const roomAfterCheckout = await readJson("http://127.0.0.1:8080/api/rooms/4", { headers: authHeaders });
+  assert.equal(roomAfterCheckout.data.status, "cleaning");
 
   await readJson(`http://127.0.0.1:8080/api/finance/payments/${paymentResult.data.payment.id}/void`, {
     method: "POST",
@@ -246,6 +265,26 @@ async function main() {
     body: JSON.stringify({ roleId: "mantenimiento", role: "Mantenimiento", modules: ["rooms", "logbook"] })
   });
   assert.deepEqual(updatedEmployee.data.access.modules, ["rooms", "logbook"]);
+
+  const employeeLogin = await readJson("http://127.0.0.1:8080/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "eintegracion", password: "Temporal#2026" })
+  });
+  const employeeHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${employeeLogin.data.token}` };
+  const clockIn = await readJson("http://127.0.0.1:8080/api/employees/attendance/me", {
+    method: "POST",
+    headers: employeeHeaders,
+    body: JSON.stringify({ action: "clock_in" })
+  });
+  assert.equal(Boolean(clockIn.data.active), true);
+  const clockOut = await readJson("http://127.0.0.1:8080/api/employees/attendance/me", {
+    method: "POST",
+    headers: employeeHeaders,
+    body: JSON.stringify({ action: "clock_out" })
+  });
+  assert.equal(clockOut.data.active, null);
+  assert.equal(clockOut.data.history.length, 1);
 
   const welcome = await readJson("http://127.0.0.1:8080/api/notifications/employees/welcome", {
     method: "POST",

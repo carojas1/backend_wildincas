@@ -7,21 +7,30 @@ const port = Number(process.env.AUTH_PORT || 7101);
 const { app, listen } = createService({ name: "auth", port, description: "Autenticacion y usuarios efimeros" });
 
 const roles = [
-  { id: "admin", name: "Administrador", modules: ["all"], description: "Configuracion, usuarios, operacion, caja, facturacion y reportes." },
+  { id: "admin", name: "Administrador", modules: ["all"], description: "Configuracion, usuarios, operacion, caja, notas de venta y reportes." },
   { id: "gerencia", name: "Gerencia", modules: ["dashboard", "rooms", "reservations", "guests", "cleaning", "logbook", "cash", "billing", "income", "employees", "notifications"], description: "Supervision operativa y financiera sin administrar credenciales." },
   { id: "recepcion", name: "Recepcion", modules: ["dashboard", "rooms", "reservations", "guests", "cleaning", "logbook", "billing", "notifications"], description: "Reservas, huespedes, check-in, consumos, checkout y comprobantes." },
-  { id: "caja", name: "Caja", modules: ["dashboard", "reservations", "cash", "billing", "income", "notifications"], description: "Pagos, facturas, apertura y cierre de caja." },
+  { id: "caja", name: "Caja", modules: ["dashboard", "reservations", "cash", "billing", "income", "notifications"], description: "Pagos, notas de venta, apertura y cierre de caja." },
   { id: "contabilidad", name: "Contabilidad", modules: ["dashboard", "cash", "billing", "income", "notifications"], description: "Ingresos, gastos, saldos, cierres y exportacion Excel." },
   { id: "limpieza", name: "Limpieza", modules: ["rooms", "cleaning", "logbook"], description: "Limpieza, disponibilidad fisica y tareas asignadas." },
   { id: "mantenimiento", name: "Mantenimiento", modules: ["rooms", "cleaning", "logbook"], description: "Incidencias tecnicas y habitaciones fuera de servicio." },
-  { id: "huesped", name: "Huesped", modules: ["portal"], description: "Consulta exclusiva de reservas y facturas propias." }
+  { id: "huesped", name: "Huesped", modules: ["portal"], description: "Consulta exclusiva de reservas y notas de venta propias." }
 ];
 
 let users = [
-  { id: "u1", username: "apolo", password: "admin123", name: "Apolo", email: "admin@wildincas.com", roleId: "admin", role: "Administrador", modules: ["all"], status: "active" },
-  { id: "u2", username: "vmora", password: "recep123", name: "Valentina Mora", email: "vmora@wildincas.com", roleId: "recepcion", role: "Recepcion", modules: ["dashboard", "rooms", "guests", "cash", "income", "notifications"], status: "active" }
+  { id: "u1", username: "apolo", password: process.env.ADMIN_PASSWORD || "admin123", name: "Apolo", email: process.env.ADMIN_EMAIL || "admin@wildincas.com", roleId: "admin", role: "Administrador", modules: ["all"], status: "active" }
 ];
 users = await loadState("auth_users", users);
+
+// Keep the bootstrap owner recoverable while the remaining accounts stay fully managed from the app.
+const owner = users.find((item) => item.username === "apolo");
+const ownerPassword = process.env.ADMIN_PASSWORD || "admin123";
+if (owner) {
+  Object.assign(owner, { name: "Apolo", roleId: "admin", role: "Administrador", modules: ["all"], status: "active", password: ownerPassword });
+  delete owner.passwordHash;
+} else {
+  users.unshift({ id: "u1", username: "apolo", password: ownerPassword, name: "Apolo", email: process.env.ADMIN_EMAIL || "admin@wildincas.com", roleId: "admin", role: "Administrador", modules: ["all"], status: "active" });
+}
 
 function persistUsers() {
   return saveState("auth_users", users);
