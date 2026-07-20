@@ -131,16 +131,13 @@ Despues de cambiar esta variable, redeploy.
 
 ## Supabase Cloud
 
-Antes de usar Render con Supabase, entra a Supabase SQL Editor y ejecuta:
+Antes de usar Render con Supabase, entra a Supabase SQL Editor y ejecuta el
+archivo completo `docs/supabase-schema.sql`. Este crea un almacen aislado por
+dominio (`simot_auth`, `simot_rooms`, `simot_guests`, `simot_reservations`,
+`simot_operations`, `simot_finance`, `simot_employees` y
+`simot_notifications`), sus politicas RLS y las tablas de compatibilidad.
 
-```sql
-create table if not exists public.simot_state (
-  key text primary key,
-  value jsonb not null,
-  updated_at timestamptz not null default now()
-);
-
-alter table public.simot_state enable row level security;
-```
-
-El backend guarda ahi habitaciones, huespedes, caja, usuarios, empleados, novedades y comprobantes.
+Cada tabla conserva una instantanea `state` y filas individuales por entidad.
+Por eso Supabase Table Editor permite inspeccionar reservas, huespedes,
+habitaciones y movimientos sin abrir manualmente un unico JSON. `simot_state`
+se mantiene solo como respaldo de compatibilidad para instalaciones antiguas.

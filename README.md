@@ -49,3 +49,12 @@ El archivo `render.microservices.yaml` muestra como separarlos en Render con `DI
 Copiar `.env.example` y configurar SMTP para envio real de comprobantes.
 
 Guia de despliegue y Brevo: `docs/deployment.md`.
+
+## Entrega academica final
+
+- Estructura funcional completa: `docs/estructura-proyecto-final.md`.
+- Documento listo para importar en Overleaf: `docs/proyecto-final-overleaf.tex`.
+- Cumplimiento de las 30 actividades del Gantt: `docs/cumplimiento-cronograma.md`.
+- Matriz de evaluacion y evidencias: `docs/matriz-evaluacion-final.md`.
+- Guion de defensa de 15 a 18 minutos: `docs/guion-defensa-final.md`.
+- Manual de usuario y pasantes: `docs/manual-usuario.md`.

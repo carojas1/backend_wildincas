@@ -1,0 +1,290 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{hyperref}
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=black}
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+\newcommand{\proyecto}{Wild Incas: Sistema Integral de Gestión Hotelera}
+\newcommand{\institucion}{[Nombre de la institución]}
+\newcommand{\carrera}{Carrera de Desarrollo de Software}
+\newcommand{\integrantes}{[Integrante 1] y [Integrante 2]}
+\newcommand{\docente}{[Nombre del docente]}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+{\Large \institucion\par}
+\vspace{1cm}
+{\large \carrera\par}
+\vspace{2cm}
+{\Huge\bfseries \proyecto\par}
+\vspace{1cm}
+{\Large Proyecto de fin de ciclo -- Cuarto ciclo\par}
+\vfill
+\begin{tabular}{rl}
+Integrantes: & \integrantes \\
+Docente: & \docente \\
+Periodo: & 2026 \\
+Ciudad: & Cuenca, Ecuador
+\end{tabular}
+\vfill
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{Resumen}
+
+Wild Incas es una aplicación web para gestionar la operación de un hotel de siete habitaciones. Integra reservas, huéspedes, habitaciones, limpieza, novedades, notas de venta, pagos, caja, contabilidad, empleados, roles y notificaciones. La solución utiliza React y Vite en el frontend; Node.js y Express en microservicios; un servicio descubridor; un API Gateway; Supabase PostgreSQL para persistencia; Brevo para correo transaccional; y un proyecto Spring Boot con OpenFeign para demostrar consumo REST entre servicios. El sistema evita reservas cruzadas, mantiene trazabilidad desde el ingreso hasta la limpieza y produce reportes basados en los mismos datos guardados.
+
+\textbf{Palabras clave:} hotel, microservicios, API Gateway, descubrimiento, REST, OpenFeign, Supabase.
+
+\section{Introducción}
+
+\subsection{Contexto}
+
+Los establecimientos hoteleros pequeños suelen manejar reservas, cobros y novedades mediante hojas de cálculo, mensajes o registros separados. Esta fragmentación aumenta el riesgo de asignar dos veces una habitación, omitir saldos, perder el historial de un huésped o demorar la comunicación con limpieza.
+
+\subsection{Justificación}
+
+El proyecto centraliza la operación y crea relaciones automáticas entre módulos. Una reserva modifica disponibilidad; un pago alimenta caja; una salida genera la nota de venta y envía la habitación a limpieza. La arquitectura de microservicios separa responsabilidades y permite evolucionar cada dominio sin reemplazar todo el sistema.
+
+\subsection{Alcance}
+
+Incluye autenticación, roles, habitaciones, huéspedes, reservas, estadías, consumos, pagos, notas de venta, caja, contabilidad, limpieza, novedades, empleados, asistencia, correo y Excel. No incluye facturación electrónica autorizada por el SRI, pasarela bancaria real ni cerraduras electrónicas.
+
+\subsection{Público objetivo}
+
+Administradores, gerentes, recepcionistas, cajeros, personal contable, limpieza y mantenimiento de hostales u hoteles pequeños.
+
+\section{Objetivos}
+
+\subsection{Objetivo general}
+
+Desarrollar un sistema integral de gestión hotelera basado en microservicios que automatice reservas, operación, cobros, contabilidad y control de acceso mediante una plataforma web desplegada en la nube.
+
+\subsection{Objetivos específicos}
+
+\begin{enumerate}[label=\arabic*.]
+\item Diseñar servicios independientes para autenticación, habitaciones, huéspedes, reservas, operaciones, finanzas, empleados y notificaciones.
+\item Evitar reservas cruzadas mediante validación de disponibilidad por fechas.
+\item Integrar pagos, caja, notas de venta, contabilidad e indicadores con una única fuente de datos.
+\item Implementar roles y permisos comprobados en el API Gateway.
+\item Implementar descubrimiento de servicios y comunicación REST con DTO mediante OpenFeign.
+\item Desplegar frontend, backend, persistencia y correo en servicios cloud.
+\item Verificar la solución mediante pruebas automatizadas y recorridos funcionales.
+\end{enumerate}
+
+\section{Marco teórico}
+
+Un microservicio encapsula una capacidad de negocio y expone contratos explícitos. El \textit{Service Discovery} mantiene un registro dinámico de instancias. El API Gateway ofrece un punto de entrada, aplica políticas transversales y reenvía solicitudes. REST organiza recursos sobre HTTP. Un DTO transporta únicamente los datos necesarios y reduce acoplamiento. OpenFeign permite declarar un cliente REST como interfaz Java. RBAC asigna permisos según roles. La idempotencia evita repetir efectos cuando una operación se reintenta.
+
+\section{Metodología}
+
+Se aplicó un proceso incremental: levantamiento de requisitos, separación por dominios, prototipado visual, implementación de APIs, integración, persistencia cloud, pruebas y despliegue. El cronograma se administró con un diagrama de Gantt. Cada incremento se validó con un flujo operativo observable desde el navegador y con evidencia en Supabase.
+
+\section{Planificación y cumplimiento del cronograma}
+
+El cronograma comprende 30 actividades entre el 10 de abril y el 16 de julio,
+agrupadas en cinco fases. El archivo original rotula el año 2025; para la entrega
+del periodo actual se debe actualizar el encabezado a 2026 si esa es la fecha
+oficial, sin modificar las duraciones ni dependencias.
+
+\begin{longtable}{p{1cm}p{3.2cm}p{6.7cm}p{3.3cm}}
+\toprule
+N. & Fase & Actividad & Evidencia \\
+\midrule
+1 & Análisis y Diseño & Relevamiento de requerimientos & Requisitos del documento \\
+2 & Análisis y Diseño & Entrevistas con el hostal & Catálogo y necesidades \\
+3 & Análisis y Diseño & Diseño de base de datos & \path{docs/supabase-schema.sql} \\
+4 & Análisis y Diseño & Definición de módulos y API & Arquitectura y endpoints \\
+5 & Análisis y Diseño & Wireframes UI/UX & Interfaz y capturas \\
+6 & Análisis y Diseño & Revisión y aprobación & Versión desplegada \\
+7 & Infraestructura & Entorno de desarrollo & Scripts y dependencias \\
+8 & Infraestructura & Servidor y base de datos & Render y Supabase \\
+9 & Infraestructura & Scaffolding frontend & React/Vite en lugar de Angular \\
+10 & Infraestructura & Scaffolding API REST & Node/Express \\
+11 & Infraestructura & CI/CD básico & Deploy automático de \texttt{main} \\
+12 & Desarrollo Core & Usuarios y autenticación & Servicio Auth \\
+13 & Desarrollo Core & Gestión de habitaciones & Servicio Rooms \\
+14 & Desarrollo Core & Dashboard de habitaciones & Dashboard React \\
+15 & Desarrollo Core & Check-in y check-out & Servicio Reservations \\
+16 & Desarrollo Core & Limpieza y mantenimiento & Rooms + Operations \\
+17 & Desarrollo Core & Bitácora de novedades & Servicio Operations \\
+18 & Desarrollo Core & Checklist de turno & Checklist persistido \\
+19 & Módulo Contable & Diseño de apertura/cierre & Flujo de caja 24/7 \\
+20 & Módulo Contable & Lógica contable backend & Servicio Finance \\
+21 & Módulo Contable & Panel de caja frontend & Vista Caja \\
+22 & Módulo Contable & Reportes y exportación & Excel por rango \\
+23 & Módulo Contable & Integración Auth--Contable & Permisos en Gateway \\
+24 & Pruebas y Entrega & Pruebas de integración & Smoke y Feign \\
+25 & Pruebas y Entrega & Pruebas UI/UX & Build y recorrido visual \\
+26 & Pruebas y Entrega & Corrección de errores & Historial Git \\
+27 & Pruebas y Entrega & Documentación técnica & Carpeta \path{docs} \\
+28 & Pruebas y Entrega & Manual de usuario & \path{docs/manual-usuario.md} \\
+29 & Pruebas y Entrega & Deploy de producción & Vercel y Render \\
+30 & Pruebas y Entrega & Presentación final & Guion y video \\
+\bottomrule
+\end{longtable}
+
+La matriz detallada de fechas, responsables y cumplimiento se adjunta como
+anexo en \path{docs/cumplimiento-cronograma.md}.
+
+\section{Análisis y diseño}
+
+\subsection{Requisitos funcionales}
+
+\begin{longtable}{p{1.5cm}p{12.5cm}}
+\toprule
+Código & Requisito \\
+\midrule
+RF01 & Autenticar usuarios y mantener sesiones. \\
+RF02 & Crear empleados, asignar roles y modificar módulos permitidos. \\
+RF03 & Crear y editar habitaciones, tarifas, capacidad, servicios y estado. \\
+RF04 & Registrar, buscar, editar y consultar el historial de huéspedes. \\
+RF05 & Crear reservas y validar cruces de habitación y fechas. \\
+RF06 & Registrar check-in, consumos, extensiones, pagos y checkout. \\
+RF07 & Separar la acción de cobro de la acción de salida. \\
+RF08 & Cambiar la habitación a limpieza después del checkout y liberarla al completar la tarea. \\
+RF09 & Registrar novedades con autor, fecha, prioridad, responsable y resolución. \\
+RF10 & Generar notas de venta definitivas desde datos persistidos. \\
+RF11 & Registrar caja, ingresos, gastos, métodos de pago y diferencias. \\
+RF12 & Exportar Excel por rango y mostrar indicadores operativos. \\
+RF13 & Enviar correos idempotentes y conservar reintentos. \\
+RF14 & Registrar entrada y salida laboral de empleados. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Requisitos no funcionales}
+
+\begin{itemize}
+\item Seguridad: token, RBAC en Gateway, secretos solo en servidor y RLS en Supabase.
+\item Disponibilidad: reintentos de persistencia y conservación de operaciones aunque falle el correo.
+\item Rendimiento: cache temporal de descubrimiento y cargas paralelas del dashboard.
+\item Usabilidad: navegación por tareas, filtros, estados visibles y acciones contextuales.
+\item Mantenibilidad: separación por dominio, DTO y variables de entorno.
+\item Trazabilidad: códigos únicos, auditoría, actor y marcas de tiempo.
+\end{itemize}
+
+\subsection{Arquitectura}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.9\textwidth}{\centering
+Usuario $\rightarrow$ React/Vercel $\rightarrow$ API Gateway $\rightarrow$ Discovery \\
+$\downarrow$ Auth \quad Rooms \quad Guests \quad Reservations \quad Operations \\
+Finance \quad Employees \quad Notifications $\rightarrow$ Brevo \\
+Servicios $\rightarrow$ almacenes aislados \texttt{simot\_*} en Supabase
+}}
+\caption{Arquitectura general de Wild Incas.}
+\end{figure}
+
+\subsection{Modelo de datos}
+
+Cada dominio posee una tabla: \texttt{simot\_auth}, \texttt{simot\_rooms}, \texttt{simot\_guests}, \texttt{simot\_reservations}, \texttt{simot\_operations}, \texttt{simot\_finance}, \texttt{simot\_employees} y \texttt{simot\_notifications}. El proyecto cloud actual comparte una instancia Supabase por costo, pero conserva propiedad lógica. Una evolución puede asignar una instancia o esquema por servicio.
+
+\section{Desarrollo}
+
+\subsection{Tecnologías}
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+Tecnología & Uso \\
+\midrule
+React + Vite & Interfaz web desplegada en Vercel. \\
+Node.js + Express & APIs REST, descubridor y Gateway. \\
+Spring Boot + OpenFeign & Demostración de consumo REST tipado. \\
+Supabase PostgreSQL & Persistencia cloud y seguridad RLS. \\
+Brevo & Correo transaccional por HTTPS. \\
+Render & Ejecución del backend. \\
+ExcelJS & Reportes XLSX con hojas e indicadores. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Microservicios}
+
+El código principal se distribuye en \path{backend/services}. El descubridor está en \path{backend/discovery/server.js}; el Gateway en \path{backend/api-gateway/server.js}; y la persistencia en \path{backend/shared/cloudStore.js}. Cada servicio implementa CRUD y un endpoint de salud.
+
+\subsection{Gateway y seguridad}
+
+El Gateway mapea rutas \texttt{/api/*}, valida el token con Auth, obtiene los módulos del usuario y permite o rechaza la operación. Luego consulta Discovery, agrega la identidad del actor en cabeceras y reenvía la solicitud al servicio correspondiente.
+
+\subsection{Integración Feign}
+
+El proyecto \path{spring-feign-integration} contiene la interfaz \path{client/Cliente.java} con \texttt{@FeignClient}, DTO para huésped, reserva, consumo y resumen, una capa de transformación y una prueba automatizada. El endpoint demostrable es \texttt{GET /api/integration/reservations/\{id\}/summary}.
+
+\subsection{Flujo operativo}
+
+Recepción registra la estadía, Reservations valida disponibilidad, Finance recibe pagos, Notifications administra comprobantes y Rooms actualiza el estado. Después del checkout la habitación pasa a limpieza; al completar la tarea vuelve a disponible. Esta coordinación conserva límites de responsabilidad y usa llamadas REST.
+
+\section{Pruebas}
+
+\begin{longtable}{p{4cm}p{5cm}p{5cm}}
+\toprule
+Prueba & Procedimiento & Resultado esperado \\
+\midrule
+Backend smoke & Ejecutar \texttt{npm test} & Servicios y rutas críticas responden correctamente. \\
+Frontend producción & Ejecutar \texttt{npm run build} & Compilación sin errores. \\
+Feign & Ejecutar \texttt{mvn test} & Transformación a \texttt{StaySummaryDto} válida. \\
+Reserva cruzada & Reservar la misma habitación y fechas & Rechazo con mensaje de disponibilidad. \\
+Pago y salida & Pagar total y ejecutar checkout & Saldo cero, nota final y habitación en limpieza. \\
+Permisos & Acceder a módulo no asignado & Gateway responde HTTP 403. \\
+Correo & Enviar comprobante de prueba & Estado enviado o pendiente con reintento. \\
+Persistencia & Recargar aplicación & Datos conservados en Supabase. \\
+\bottomrule
+\end{longtable}
+
+\section{Resultados}
+
+Se obtuvo una plataforma desplegada en la nube que administra el ciclo completo de una estadía. La separación en servicios permite ubicar claramente la responsabilidad de cada función. El sistema mantiene disponibilidad, saldos, caja, limpieza y reportes conectados. Los permisos se verifican en servidor y los comprobantes conservan estado independiente del resultado del proveedor de correo.
+
+\section{Limitaciones y trabajo futuro}
+
+La instancia gratuita de Render puede entrar en suspensión y aumentar el tiempo de la primera solicitud. El despliegue actual consolida procesos para reducir costo, aunque existe un Blueprint de despliegue independiente. Los almacenes comparten un proyecto Supabase. La nota de venta es un documento interno y no una factura electrónica SRI. Se propone añadir observabilidad, auditoría inmutable, PDF almacenado, respaldo automático, pasarela de pago y pruebas end-to-end.
+
+\section{Conclusiones}
+
+\begin{enumerate}
+\item La separación por dominios disminuyó el acoplamiento entre operación, finanzas, personal y notificaciones.
+\item El API Gateway centralizó autenticación, permisos y enrutamiento.
+\item El descubridor eliminó la necesidad de fijar manualmente la ubicación de cada servicio.
+\item Los DTO y OpenFeign permitieron un consumo REST explícito y comprobable.
+\item La fuente única de datos mejoró la coherencia entre reservas, pagos, limpieza, correo y Excel.
+\end{enumerate}
+
+\section{Referencias}
+
+\begin{itemize}
+\item React. \url{https://react.dev/}
+\item Express. \url{https://expressjs.com/}
+\item Spring Cloud OpenFeign. \url{https://spring.io/projects/spring-cloud-openfeign}
+\item Supabase Documentation. \url{https://supabase.com/docs}
+\item Render Documentation. \url{https://render.com/docs}
+\item Brevo API Documentation. \url{https://developers.brevo.com/}
+\end{itemize}
+
+\section{Anexos}
+
+\begin{itemize}
+\item Repositorio de backend: [URL pública].
+\item Repositorio de frontend: [URL pública].
+\item Aplicación: \url{https://fronted-wildincas-five.vercel.app/}
+\item API: \url{https://backend-wildincas.onrender.com/health}
+\item Video público: [URL de YouTube o Drive].
+\item Cronograma Gantt: adjuntar captura o PDF.
+\item Evidencias de pruebas y capturas de Supabase/Brevo.
+\end{itemize}
+
+\end{document}
