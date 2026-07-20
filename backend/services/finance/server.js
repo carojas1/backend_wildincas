@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { nanoid } from "nanoid";
 import { movements as seedMovements, shifts as seedShifts } from "../../shared/seed.js";
 import { loadState, saveState } from "../../shared/cloudStore.js";
-import { createService, fail, ok, parseMoney } from "../../shared/service.js";
+import { createService, fail, ok, parseMoney, serviceRequest } from "../../shared/service.js";
 
 const port = Number(process.env.FINANCE_PORT || 7105);
 const { app, listen } = createService({
@@ -100,6 +100,89 @@ function dailySnapshot(date = today()) {
   const income = movementTotal(items, "income");
   const expense = movementTotal(items, "expense");
   return { date, income, expense, balance: parseMoney(income - expense), methods, movements: items };
+}
+
+function periodFromQuery(query = {}) {
+  const current = today();
+  const monthStart = `${current.slice(0, 7)}-01`;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(query.from || "")) ? String(query.from) : monthStart;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(query.to || "")) ? String(query.to) : current;
+  return { from, to };
+}
+
+function dateOf(item, ...fields) {
+  for (const field of fields) {
+    const value = field.split(".").reduce((current, part) => current?.[part], item);
+    if (value) return String(value).slice(0, 10);
+  }
+  return "";
+}
+
+function inPeriod(value, from, to) {
+  const date = String(value || "").slice(0, 10);
+  return Boolean(date && date >= from && date <= to);
+}
+
+function stayInPeriod(item, from, to) {
+  return String(item.checkIn || "") <= to && String(item.checkOut || item.checkIn || "") >= from;
+}
+
+function periodDays(from, to) {
+  return Math.max(1, Math.floor((new Date(`${to}T12:00:00Z`) - new Date(`${from}T12:00:00Z`)) / 86400000) + 1);
+}
+
+function analyticsSnapshot(from, to, reservations = [], rooms = []) {
+  const movements = state.movements.filter((item) => item.status !== "voided" && inPeriod(item.date, from, to));
+  const payments = state.payments.filter((item) => item.status !== "voided" && inPeriod(item.createdAt, from, to));
+  const invoices = state.invoices.map(refreshInvoice).filter((item) => inPeriod(item.issuedAt, from, to));
+  const stays = reservations.filter((item) => stayInPeriod(item, from, to));
+  const income = movementTotal(movements, "income");
+  const expense = movementTotal(movements, "expense");
+  const collected = parseMoney(payments.reduce((sum, item) => sum + Number(item.amount || 0), 0));
+  const roomNights = stays.reduce((sum, item) => sum + Number(item.nights || 0), 0);
+  const lodging = stays.reduce((sum, item) => sum + Number(item.lodgingSubtotal || 0), 0);
+  const days = periodDays(from, to);
+  const monthly = days > 62;
+  const groups = new Map();
+  for (const movement of movements) {
+    const key = monthly ? String(movement.date).slice(0, 7) : movement.date;
+    const current = groups.get(key) || { label: key, income: 0, expense: 0 };
+    current[movement.type] = parseMoney(current[movement.type] + Number(movement.amount || 0));
+    groups.set(key, current);
+  }
+  const methodMap = new Map();
+  for (const payment of payments) methodMap.set(payment.method || "Sin metodo", parseMoney((methodMap.get(payment.method || "Sin metodo") || 0) + Number(payment.amount || 0)));
+  const categoryMap = new Map();
+  for (const movement of movements) {
+    const key = movement.category || "Sin categoria";
+    const current = categoryMap.get(key) || { category: key, income: 0, expense: 0 };
+    current[movement.type] = parseMoney(current[movement.type] + Number(movement.amount || 0));
+    categoryMap.set(key, current);
+  }
+  return {
+    period: { from, to, days },
+    summary: {
+      income,
+      expense,
+      profit: parseMoney(income - expense),
+      collected,
+      accountsReceivable: parseMoney(invoices.reduce((sum, item) => sum + Number(item.balance || 0), 0)),
+      invoices: invoices.length,
+      reservations: stays.length,
+      guests: new Set(stays.map((item) => item.guestId).filter(Boolean)).size,
+      roomNights,
+      averageDailyRate: roomNights ? parseMoney(lodging / roomNights) : 0,
+      averageTicket: invoices.length ? parseMoney(invoices.reduce((sum, item) => sum + Number(item.total || 0), 0) / invoices.length) : 0,
+      occupancy: rooms.length ? parseMoney((roomNights / (rooms.length * days)) * 100) : 0
+    },
+    series: [...groups.values()].sort((a, b) => a.label.localeCompare(b.label)),
+    methods: [...methodMap.entries()].map(([method, amount]) => ({ method, amount })).sort((a, b) => b.amount - a.amount),
+    categories: [...categoryMap.values()].sort((a, b) => (b.income + b.expense) - (a.income + a.expense)),
+    movements,
+    payments,
+    invoices,
+    stays
+  };
 }
 
 function invoicePayments(invoice) {
@@ -341,20 +424,39 @@ app.post("/invoices/finalize", async (req, res) => {
 
 app.get("/daily", (req, res) => ok(res, dailySnapshot(req.query.date || today())));
 
-app.get("/summary", (_req, res) => {
-  const income = movementTotal(state.movements, "income");
-  const expense = movementTotal(state.movements, "expense");
-  const accountsReceivable = parseMoney(state.invoices.reduce((sum, item) => sum + refreshInvoice(item).balance, 0));
+app.get("/summary", (req, res) => {
+  const { from, to } = periodFromQuery(req.query);
+  const periodMovements = state.movements.filter((item) => item.status !== "voided" && inPeriod(item.date, from, to));
+  const periodInvoices = state.invoices.map(refreshInvoice).filter((item) => inPeriod(item.issuedAt, from, to));
+  const income = movementTotal(periodMovements, "income");
+  const expense = movementTotal(periodMovements, "expense");
+  const accountsReceivable = parseMoney(periodInvoices.reduce((sum, item) => sum + item.balance, 0));
   ok(res, {
+    from,
+    to,
     income,
     expense,
     balance: parseMoney(income - expense),
     accountsReceivable,
-    invoices: state.invoices.length,
-    paidInvoices: state.invoices.filter((item) => refreshInvoice(item).paymentStatus === "paid").length,
+    invoices: periodInvoices.length,
+    paidInvoices: periodInvoices.filter((item) => item.paymentStatus === "paid").length,
     openShift: state.openShift,
     today: dailySnapshot()
   });
+});
+
+app.get("/analytics", async (req, res) => {
+  const { from, to } = periodFromQuery(req.query);
+  if (to < from) return fail(res, "La fecha final debe ser posterior a la fecha inicial", 422);
+  try {
+    const [reservations, rooms] = await Promise.all([
+      serviceRequest("reservations", "/reservations"),
+      serviceRequest("rooms", "/")
+    ]);
+    ok(res, analyticsSnapshot(from, to, reservations, rooms));
+  } catch (error) {
+    return fail(res, `No se pudo consolidar el reporte hotelero: ${error.message}`, 503);
+  }
 });
 
 app.get("/metrics", (_req, res) => {
@@ -421,54 +523,112 @@ app.post("/shifts/close", async (req, res) => {
   ok(res, shift);
 });
 
-app.get("/export.xlsx", async (_req, res, next) => {
+app.get("/export.xlsx", async (req, res, next) => {
   try {
-    const workbook = createWorkbook();
+    const { from, to } = periodFromQuery(req.query);
+    if (to < from) return fail(res, "La fecha final debe ser posterior a la fecha inicial", 422);
+    const [reservations, rooms] = await Promise.all([
+      serviceRequest("reservations", "/reservations"),
+      serviceRequest("rooms", "/")
+    ]);
+    const workbook = createWorkbook({ from, to, reservations, rooms });
     const buffer = await workbook.xlsx.writeBuffer();
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="wild-incas-contabilidad-${today()}.xlsx"`);
+    res.setHeader("Content-Disposition", `attachment; filename="wild-incas-${from}-${to}.xlsx"`);
     res.send(Buffer.from(buffer));
   } catch (error) {
     next(error);
   }
 });
 
-function createWorkbook() {
+function createWorkbook({ from, to, reservations, rooms }) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "SIMOT Wild Incas";
+  workbook.creator = "Wild Incas Hotel Management";
   workbook.created = new Date();
+  workbook.company = "Wild Incas";
+  const analytics = analyticsSnapshot(from, to, reservations, rooms);
+  const invoiceIds = new Set(analytics.invoices.map((item) => item.id));
+  const shiftRows = state.shifts.filter((item) => inPeriod(item.date, from, to));
   const summary = workbook.addWorksheet("Resumen general", { views: [{ showGridLines: false }] });
-  summary.columns = [{ width: 30 }, { width: 20 }];
+  summary.columns = [{ width: 36 }, { width: 22 }];
   summary.addRows([
-    ["WILD INCAS - REPORTE CONTABLE"],
+    ["WILD INCAS - INFORME HOTELERO"],
+    ["Periodo", `${from} al ${to}`],
     ["Generado", new Date()],
-    ["Ingresos", movementTotal(state.movements, "income")],
-    ["Gastos", movementTotal(state.movements, "expense")],
-    ["Utilidad", movementTotal(state.movements, "income") - movementTotal(state.movements, "expense")],
-    ["Cuentas pendientes", state.invoices.reduce((sum, item) => sum + refreshInvoice(item).balance, 0)],
-    ["Facturas finales", state.invoices.length],
-    ["Pagos validos", state.payments.filter((item) => item.status !== "voided").length],
-    ["Pagos anulados", state.payments.filter((item) => item.status === "voided").length]
+    ["Ingresos", analytics.summary.income],
+    ["Gastos", analytics.summary.expense],
+    ["Utilidad", analytics.summary.profit],
+    ["Cobrado", analytics.summary.collected],
+    ["Cuentas pendientes", analytics.summary.accountsReceivable],
+    ["Facturas finales", analytics.summary.invoices],
+    ["Estadias", analytics.summary.reservations],
+    ["Huespedes unicos", analytics.summary.guests],
+    ["Noches vendidas", analytics.summary.roomNights],
+    ["Ocupacion estimada", analytics.summary.occupancy / 100],
+    ["Tarifa promedio", analytics.summary.averageDailyRate],
+    ["Ticket promedio", analytics.summary.averageTicket]
   ]);
   styleSummary(summary);
+
+  const trend = addDataSheet(workbook, "Tendencia", [
+    ["Periodo", "label"], ["Ingresos", "income"], ["Gastos", "expense"], ["Balance", "balance"], ["Intensidad", "bar"]
+  ], analytics.series.map((item) => ({
+    ...item,
+    balance: parseMoney(item.income - item.expense),
+    bar: "#".repeat(Math.max(1, Math.round((item.income / Math.max(1, ...analytics.series.map((row) => row.income))) * 24)))
+  })));
+  trend.getColumn(5).font = { color: { argb: "FF7A2431" } };
+
+  const stayRows = analytics.stays.map((stay) => {
+    const payments = state.payments.filter((item) => item.status !== "voided" && item.reservationId === stay.id);
+    const paid = parseMoney(payments.reduce((sum, item) => sum + Number(item.amount || 0), 0));
+    const created = (stay.audit || []).find((entry) => entry.action === "reservation_created");
+    const closed = (stay.audit || []).find((entry) => entry.action === "checkout");
+    return {
+      ...stay,
+      guestName: stay.guest?.name || "Consumidor final",
+      guestDocument: stay.guest?.documentNumber || "",
+      guestEmail: stay.guest?.email || "",
+      chargeTotal: parseMoney((stay.charges || []).reduce((sum, item) => sum + Number(item.total || 0), 0)),
+      paid,
+      pending: parseMoney(Math.max(0, Number(stay.total || 0) - paid)),
+      createdBy: created?.actor || "",
+      finalizedBy: stay.checkedOutBy || closed?.actor || "",
+      finalizedAt: stay.checkedOutAt || closed?.createdAt || ""
+    };
+  });
+  addDataSheet(workbook, "Estadias", [
+    ["Reserva", "code"], ["Estado", "status"], ["Huesped", "guestName"], ["Documento", "guestDocument"],
+    ["Correo", "guestEmail"], ["Habitacion", "roomId"], ["Tipo", "roomType"], ["Entrada", "checkIn"],
+    ["Salida", "checkOut"], ["Hora salida", "exitTime"], ["Noches", "nights"], ["Adultos", "adults"],
+    ["Tarifa", "nightlyRate"], ["Hospedaje", "lodgingSubtotal"], ["Servicios", "chargeTotal"], ["Total", "total"],
+    ["Pagado", "paid"], ["Pendiente", "pending"], ["Origen", "source"], ["Registrado por", "createdBy"],
+    ["Finalizado por", "finalizedBy"], ["Fecha finalizacion", "finalizedAt"], ["Notas", "notes"]
+  ], stayRows);
 
   addDataSheet(workbook, "Facturas", [
     ["Numero", "number"], ["Fecha", "issuedAt"], ["Reserva", "reservationCode"], ["Cliente", "guest.name"],
     ["Documento", "guest.documentNumber"], ["Habitacion", "roomId"], ["Entrada", "checkIn"], ["Salida", "checkOut"],
-    ["Subtotal", "subtotal"], ["Impuesto", "tax"], ["Total", "total"], ["Pagado", "paid"], ["Saldo", "balance"], ["Estado pago", "paymentStatus"]
-  ], state.invoices.map(refreshInvoice));
+    ["Subtotal", "subtotal"], ["Impuesto", "tax"], ["Total", "total"], ["Pagado", "paid"], ["Saldo", "balance"], ["Estado pago", "paymentStatus"],
+    ["Emitida por", "issuedBy"]
+  ], analytics.invoices);
   addDataSheet(workbook, "Detalles", [
     ["Factura", "invoiceNumber"], ["Categoria", "category"], ["Descripcion", "description"], ["Cantidad", "quantity"], ["Precio unitario", "unitPrice"], ["Total", "total"]
-  ], state.invoices.flatMap((invoice) => invoice.lines.map((line) => ({ invoiceNumber: invoice.number, ...line }))));
+  ], state.invoices.filter((invoice) => invoiceIds.has(invoice.id)).flatMap((invoice) => invoice.lines.map((line) => ({ invoiceNumber: invoice.number, ...line }))));
   addDataSheet(workbook, "Pagos", [
     ["Fecha", "createdAt"], ["Factura", "invoiceNumber"], ["Reserva", "reservationCode"], ["Cliente", "guestName"], ["Habitacion", "roomId"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Recibido", "received"], ["Cambio", "change"], ["Estado", "status"], ["Motivo anulacion", "voidReason"]
-  ], state.payments);
+  ], state.payments.filter((item) => inPeriod(item.createdAt, from, to)));
   addDataSheet(workbook, "Ingresos y gastos", [
     ["Fecha", "date"], ["Tipo", "type"], ["Categoria", "category"], ["Concepto", "concept"], ["Metodo", "method"], ["Referencia", "reference"], ["Monto", "amount"], ["Notas", "notes"], ["Estado", "status"], ["Motivo anulacion", "voidReason"]
-  ], state.movements);
+  ], state.movements.filter((item) => inPeriod(item.date, from, to)));
   addDataSheet(workbook, "Turnos", [
     ["Fecha", "date"], ["Turno", "shift"], ["Responsable", "responsible"], ["Inicial", "initial"], ["Esperado", "expected"], ["Cierre", "closed"], ["Diferencia", "difference"], ["Estado", "status"], ["Notas", "notes"]
-  ], state.shifts);
+  ], shiftRows);
+  addDataSheet(workbook, "Habitaciones", [
+    ["Numero", "id"], ["Piso", "floor"], ["Tipo", "type"], ["Capacidad", "capacity"], ["Tarifa", "rate"], ["Estado actual", "status"], ["Notas", "notes"]
+  ], rooms);
+  addDataSheet(workbook, "Metodos de pago", [["Metodo", "method"], ["Total cobrado", "amount"]], analytics.methods);
+  addDataSheet(workbook, "Categorias", [["Categoria", "category"], ["Ingresos", "income"], ["Gastos", "expense"]], analytics.categories);
   return workbook;
 }
 
@@ -481,13 +641,13 @@ function addDataSheet(workbook, name, columns, rows) {
     sheet.addRow(values);
   }
   sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF214E45" } };
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF5A2630" } };
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
   sheet.eachRow((row, index) => {
     row.alignment = { vertical: "middle" };
-    if (index > 1 && index % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F6F3" } };
+    if (index > 1 && index % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F1EC" } };
   });
-  const moneyKeys = new Set(["subtotal", "tax", "total", "paid", "balance", "amount", "received", "change", "unitPrice", "initial", "expected", "closed", "difference"]);
+  const moneyKeys = new Set(["subtotal", "tax", "total", "paid", "balance", "amount", "received", "change", "unitPrice", "nightlyRate", "lodgingSubtotal", "chargeTotal", "pending", "income", "expense", "profit", "collected", "averageDailyRate", "averageTicket", "initial", "expected", "closed", "difference"]);
   columns.forEach(([, key], index) => {
     if (moneyKeys.has(key)) sheet.getColumn(index + 1).numFmt = '$#,##0.00';
   });
@@ -497,11 +657,12 @@ function addDataSheet(workbook, name, columns, rows) {
 function styleSummary(sheet) {
   sheet.mergeCells("A1:B1");
   sheet.getCell("A1").font = { bold: true, size: 20, color: { argb: "FFFFFFFF" } };
-  sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF214E45" } };
+  sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF5A2630" } };
   sheet.getCell("A1").alignment = { horizontal: "center" };
-  sheet.getColumn(2).numFmt = '$#,##0.00';
-  sheet.getCell("B2").numFmt = "yyyy-mm-dd hh:mm";
-  for (let row = 3; row <= 8; row += 1) sheet.getCell(row, 1).font = { bold: true };
+  sheet.getCell("B3").numFmt = "yyyy-mm-dd hh:mm";
+  for (const row of [4, 5, 6, 7, 8, 14, 15]) sheet.getCell(row, 2).numFmt = '$#,##0.00';
+  sheet.getCell("B13").numFmt = "0.0%";
+  for (let row = 2; row <= 15; row += 1) sheet.getCell(row, 1).font = { bold: true };
 }
 
 listen();

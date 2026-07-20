@@ -254,7 +254,13 @@ async function main() {
   });
   assert.equal(welcome.data.eventType, "employee-welcome");
 
-  const exportResponse = await fetch("http://127.0.0.1:8080/api/finance/export.xlsx", { headers: authHeaders });
+  const analytics = await readJson("http://127.0.0.1:8080/api/finance/analytics?from=2027-01-01&to=2027-01-31", { headers: authHeaders });
+  assert.ok(analytics.data.summary.reservations >= 1);
+  assert.ok(analytics.data.summary.roomNights >= 2);
+  assert.ok(Array.isArray(analytics.data.series));
+  assert.ok(analytics.data.stays.some((item) => item.guest?.name === "Huesped Integracion"));
+
+  const exportResponse = await fetch("http://127.0.0.1:8080/api/finance/export.xlsx?from=2027-01-01&to=2027-01-31", { headers: authHeaders });
   assert.equal(exportResponse.ok, true);
   assert.ok((await exportResponse.arrayBuffer()).byteLength > 5000);
 

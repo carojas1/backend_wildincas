@@ -153,6 +153,7 @@ function reservationView(item) {
   return {
     ...item,
     guest: state.guests.find((guest) => guest.id === item.guestId) || item.guest,
+    audit: state.audit.filter((entry) => entry.reservationId === item.id),
     ...summary,
     nights: nightsBetween(item.checkIn, item.checkOut)
   };
@@ -214,6 +215,21 @@ app.get("/guests", (req, res) => {
       .some((value) => String(value || "").toLowerCase().includes(query))
   );
   ok(res, data);
+});
+
+app.post("/guests", async (req, res) => {
+  if (!String(req.body.name || "").trim()) return fail(res, "El nombre del huesped es obligatorio", 422);
+  const documentNumber = String(req.body.documentNumber || "").trim();
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const existing = state.guests.find((item) =>
+    (documentNumber && item.documentNumber === documentNumber)
+    || (email && String(item.email || "").toLowerCase() === email)
+  );
+  if (existing) return fail(res, "El huesped ya existe; abre su historial para crear otra estadia", 409);
+  const guest = upsertGuest(req.body);
+  audit("guest_created", null, req.body.actor || "Recepcion", `${guest.name} - ${guest.documentNumber || "sin documento"}`);
+  await persist();
+  ok(res, guest, 201);
 });
 
 app.patch("/guests/:id", async (req, res) => {
@@ -526,6 +542,7 @@ app.post("/reservations/:id/checkout", async (req, res) => {
   });
   reservation.status = "checked_out";
   reservation.checkedOutAt = now();
+  reservation.checkedOutBy = req.body.actor || "Recepcion";
   reservation.invoiceId = invoice.id;
   reservation.invoiceNumber = invoice.number;
   reservation.updatedAt = now();
