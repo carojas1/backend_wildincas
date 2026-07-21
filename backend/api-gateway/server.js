@@ -135,7 +135,8 @@ app.post("/factory-reset", async (req, res) => {
   try {
     const results = [];
     for (const table of tables) {
-      const response = await fetch(`${supabaseUrl}/rest/v1/${table}?id=not.is.null`, { 
+      const filter = table === "simot_state" ? "?key=not.is.null" : "?id=not.is.null";
+      const response = await fetch(`${supabaseUrl}/rest/v1/${table}${filter}`, { 
         method: "DELETE", headers 
       });
       // also delete from legacy table where key is not null
