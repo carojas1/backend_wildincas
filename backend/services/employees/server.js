@@ -1,13 +1,20 @@
 import { nanoid } from "nanoid";
 import { employees as seedEmployees } from "../../shared/seed.js";
 import { createService, ok, fail, serviceRequest } from "../../shared/service.js";
+import { loadState, saveState } from "../../shared/cloudStore.js";
 
 const port = Number(process.env.EMPLOYEES_PORT || 7106);
 const { app, listen } = createService({ name: "employees", port, description: "Empleados, turnos, asistencia y permisos" });
-const employees = structuredClone(seedEmployees);
 
-// --- Asistencia en memoria ---
-const attendance = [
+let employees = structuredClone(seedEmployees);
+employees = await loadState("employees", employees);
+
+async function persistEmployees() {
+  await saveState("employees", employees);
+}
+
+// --- Asistencia en memoria / persistida ---
+let attendance = [
   { id: "a1", employeeId: "e1", employeeName: "Valentina Mora", username: "valentina", date: "2026-07-18", startedAt: "2026-07-18T06:02:00.000Z", endedAt: "2026-07-18T14:05:00.000Z", durationMinutes: 483, shift: "Manana", status: "complete" },
   { id: "a2", employeeId: "e2", employeeName: "Laura Sanchez", username: "laura", date: "2026-07-18", startedAt: "2026-07-18T14:01:00.000Z", endedAt: "2026-07-18T22:03:00.000Z", durationMinutes: 482, shift: "Tarde", status: "complete" },
   { id: "a3", employeeId: "e3", employeeName: "Apolo Administrador", username: "apolo", date: "2026-07-18", startedAt: "2026-07-18T22:00:00.000Z", endedAt: "2026-07-19T06:01:00.000Z", durationMinutes: 481, shift: "Noche", status: "complete" },
@@ -16,6 +23,11 @@ const attendance = [
   { id: "a6", employeeId: "e1", employeeName: "Valentina Mora", username: "valentina", date: "2026-07-20", startedAt: "2026-07-20T06:01:00.000Z", endedAt: "2026-07-20T14:08:00.000Z", durationMinutes: 487, shift: "Manana", status: "complete" },
   { id: "a7", employeeId: "e2", employeeName: "Laura Sanchez", username: "laura", date: "2026-07-17", startedAt: "2026-07-17T14:00:00.000Z", endedAt: "2026-07-17T22:01:00.000Z", durationMinutes: 481, shift: "Tarde", status: "complete" },
 ];
+attendance = await loadState("attendance", attendance);
+
+async function persistAttendance() {
+  await saveState("attendance", attendance);
+}
 
 // --- Empleados ---
 app.get("/", (req, res) => {
@@ -28,9 +40,10 @@ app.get("/current-shift", (_req, res) => {
   ok(res, employees.find((item) => item.shift === "Tarde") || employees[0]);
 });
 
-app.post("/", (req, res) => {
+app.post("/", async (req, res) => {
   const employee = { id: nanoid(8), status: "active", modules: [], since: new Date().toISOString().slice(0, 10), ...req.body };
   employees.unshift(employee);
+  await persistEmployees();
   ok(res, employee, 201);
 });
 
@@ -44,6 +57,7 @@ app.post("/onboard", async (req, res) => {
     
     const employee = { id: nanoid(8), name, email, phone, shift, hours, username, roleId, status: "active", modules, since: new Date().toISOString().slice(0, 10) };
     employees.unshift(employee);
+    await persistEmployees();
     
     const notification = await serviceRequest("notifications", "/email", {
       method: "POST",
@@ -60,10 +74,11 @@ app.post("/onboard", async (req, res) => {
   }
 });
 
-app.post("/link-user", (req, res) => {
+app.post("/link-user", async (req, res) => {
   const { id: userId, name, email, username, shift, hours, roleId, modules } = req.body;
   const employee = { id: nanoid(8), name, email, phone: "", shift, hours, username, roleId, status: "active", modules, since: new Date().toISOString().slice(0, 10) };
   employees.unshift(employee);
+  await persistEmployees();
   ok(res, employee);
 });
 
@@ -72,6 +87,7 @@ app.patch("/:id", async (req, res) => {
   if (!employee) return fail(res, "Empleado no encontrado", 404);
   
   Object.assign(employee, req.body);
+  await persistEmployees();
   
   try {
     const usersResponse = await serviceRequest("auth", "/users").catch(() => null);
@@ -89,10 +105,11 @@ app.patch("/:id", async (req, res) => {
   ok(res, employee);
 });
 
-app.delete("/:id", (req, res) => {
+app.delete("/:id", async (req, res) => {
   const index = employees.findIndex(e => e.id === req.params.id);
   if (index === -1) return fail(res, "Empleado no encontrado", 404);
   employees.splice(index, 1);
+  await persistEmployees();
   ok(res, { deleted: true });
 });
 
@@ -143,6 +160,7 @@ app.post("/attendance/me", (req, res) => {
     const record = { id: nanoid(8), employeeId: employee.id, employeeName: employee.name, username, startedAt: now, endedAt: null, durationMinutes: null, date: today };
     attendance.unshift(record);
     const active = attendance.find((a) => a.employeeId === employee.id && !a.endedAt);
+    await persistAttendance();
     return ok(res, { employee, active });
   }
   if (action === "clock_out") {
@@ -150,6 +168,7 @@ app.post("/attendance/me", (req, res) => {
     if (!active) return fail(res, "No tienes jornada activa", 404);
     active.endedAt = new Date().toISOString();
     active.durationMinutes = Math.round((new Date(active.endedAt) - new Date(active.startedAt)) / 60000);
+    await persistAttendance();
     return ok(res, { employee, active: null });
   }
   return fail(res, "Accion invalida. Usa clock_in o clock_out", 400);
@@ -173,6 +192,7 @@ app.post("/attendance/clock-in", (req, res) => {
   const now = new Date().toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit", hour12: false });
   const record = { id: nanoid(8), employeeId, employeeName: employee.name, date: today, checkIn: now, checkOut: null, shift: shift || employee.shift, status: "active" };
   attendance.unshift(record);
+  await persistAttendance();
   ok(res, record, 201);
 });
 
@@ -182,6 +202,7 @@ app.patch("/attendance/:id/clock-out", (req, res) => {
   const now = new Date().toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit", hour12: false });
   record.checkOut = now;
   record.status = "complete";
+  await persistAttendance();
   ok(res, record);
 });
 
