@@ -147,7 +147,7 @@ app.get("/attendance", (req, res) => {
   ok(res, result);
 });
 
-app.post("/attendance/me", (req, res) => {
+app.post("/attendance/me", async (req, res) => {
   const username = req.headers["x-user-username"] || "";
   const employee = employees.find((e) => e.username === username);
   if (!employee) return ok(res, { employee: null, active: null });
@@ -182,7 +182,7 @@ app.get("/attendance/me", (req, res) => {
   ok(res, { employee, active });
 });
 
-app.post("/attendance/clock-in", (req, res) => {
+app.post("/attendance/clock-in", async (req, res) => {
   const { employeeId, shift } = req.body;
   const employee = employees.find((e) => e.id === employeeId);
   if (!employee) return fail(res, "Empleado no encontrado", 404);
@@ -196,7 +196,7 @@ app.post("/attendance/clock-in", (req, res) => {
   ok(res, record, 201);
 });
 
-app.patch("/attendance/:id/clock-out", (req, res) => {
+app.patch("/attendance/:id/clock-out", async (req, res) => {
   const record = attendance.find((a) => a.id === req.params.id);
   if (!record) return fail(res, "Registro no encontrado", 404);
   const now = new Date().toLocaleTimeString("es-EC", { hour: "2-digit", minute: "2-digit", hour12: false });
