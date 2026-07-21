@@ -188,6 +188,18 @@ function upsertGuest(input) {
 async function queueNotification(eventType, reservation, extra = {}) {
   const guest = state.guests.find((item) => item.id === reservation.guestId);
   if (!guest?.email) return null;
+  
+  let paid = 0;
+  let balance = 0;
+  try {
+    const payments = await serviceRequest("finance", `/payments?reservationId=${encodeURIComponent(reservation.id)}`);
+    paid = parseMoney(payments.reduce((sum, item) => sum + item.amount, 0));
+    const summary = totals(reservation);
+    balance = parseMoney(summary.total - paid);
+  } catch (err) {
+    console.warn("Could not fetch payments for notification", err);
+  }
+
   try {
     return await serviceRequest("notifications", "/events", {
       method: "POST",
@@ -197,7 +209,7 @@ async function queueNotification(eventType, reservation, extra = {}) {
         to: guest.email,
         idempotencyKey: `${eventType}:${reservation.id}:${extra.paymentId || extra.invoiceId || reservation.updatedAt}`,
         payload: {
-          reservation: reservationView(reservation),
+          reservation: { ...reservationView(reservation), paid, balance },
           guest,
           ...extra
         }

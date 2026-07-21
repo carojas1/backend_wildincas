@@ -296,14 +296,18 @@ function buildMessage(eventType, to, payload, idempotencyKey) {
       subject: `Reserva ${reservation.code} confirmada - Wild Incas`,
       intro: `Hola ${escapeHtml(name)}, tu reserva fue confirmada.`,
       rows: reservationRows(reservation),
-      total: reservation.total
+      total: reservation.total,
+      paid: reservation.paid,
+      balance: reservation.balance
     },
     "reservation-modified": {
       title: "Reserva actualizada",
       subject: `Actualizacion de reserva ${reservation.code} - Wild Incas`,
       intro: `Hola ${escapeHtml(name)}, registramos cambios en tu reserva.`,
       rows: reservationRows(reservation),
-      total: reservation.total
+      total: reservation.total,
+      paid: reservation.paid,
+      balance: reservation.balance
     },
     "reservation-cancelled": {
       title: "Reserva cancelada",
@@ -316,14 +320,18 @@ function buildMessage(eventType, to, payload, idempotencyKey) {
       subject: `Comprobante de check-in ${reservation.code} - Wild Incas`,
       intro: `Bienvenido ${escapeHtml(name)}. Tu ingreso al hostal fue registrado.`,
       rows: reservationRows(reservation),
-      total: reservation.total
+      total: reservation.total,
+      paid: reservation.paid,
+      balance: reservation.balance
     },
     "payment-confirmation": {
       title: "Pago confirmado",
       subject: `Pago confirmado ${reservation.code || payment.id} - Wild Incas`,
       intro: `Hola ${escapeHtml(name)}, registramos correctamente tu pago.`,
       rows: [["Referencia", payment.id || reservation.code], ["Metodo", payment.method || ""], ["Fecha", formatDate(payment.createdAt)]],
-      total: payment.amount
+      total: reservation.total,
+      paid: payment.amount,
+      balance: reservation.balance
     },
     "invoice-finalized": {
       title: `Factura ${invoice.number}`,
