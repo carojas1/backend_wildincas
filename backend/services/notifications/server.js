@@ -1,290 +1,410 @@
-import nodemailer from "nodemailer";
+﻿import nodemailer from "nodemailer";
 import { nanoid } from "nanoid";
-import { createService, ok, fail } from "../../shared/service.js";
+import { loadState, saveState } from "../../shared/cloudStore.js";
+import { createService, fail, ok, parseMoney } from "../../shared/service.js";
 
 const port = Number(process.env.NOTIFICATIONS_PORT || 7107);
-const { app, listen } = createService({ name: "notifications", port, description: "Comprobantes, campanas y notificaciones" });
-const sent = [];
-const campaigns = [];
-const idempotencyCache = new Map(); // key → { sentAt, result }
+const { app, listen } = createService({
+  name: "notifications",
+  port,
+  description: "Cola idempotente de correos transaccionales con reintentos"
+});
+
+const loaded = await loadState("notifications", { jobs: [] });
+let state = { jobs: Array.isArray(loaded) ? loaded.map(normalizeLegacy) : Array.isArray(loaded?.jobs) ? loaded.jobs : [] };
+let retryRunning = false;
+const inFlight = new Set();
+
+function normalizeLegacy(item) {
+  return {
+    ...item,
+    eventType: item.eventType || item.type || "sale-note",
+    idempotencyKey: item.idempotencyKey || `legacy:${item.id}`,
+    attempts: Number(item.attempts || 1),
+    nextAttemptAt: item.nextAttemptAt || null
+  };
+}
+
+function persist() {
+  saveState("notifications", state);
+}
+
+function now() {
+  return new Date().toISOString();
+}
 
 function createTransport() {
-  if (!process.env.MAIL_HOST) return null;
+  if (!process.env.MAIL_HOST || !process.env.MAIL_USER || !process.env.MAIL_PASS) return null;
   return nodemailer.createTransport({
     host: process.env.MAIL_HOST,
     port: Number(process.env.MAIL_PORT || 587),
-    secure: false,
-    auth: process.env.MAIL_USER ? { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS } : undefined
+    secure: String(process.env.MAIL_SECURE || "false") === "true",
+    connectionTimeout: Number(process.env.MAIL_TIMEOUT_MS || 6500),
+    greetingTimeout: Number(process.env.MAIL_TIMEOUT_MS || 6500),
+    socketTimeout: Number(process.env.MAIL_TIMEOUT_MS || 6500),
+    auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS }
   });
 }
 
-function money(v) {
-  return `$${Number(v || 0).toFixed(2)}`;
+function sender() {
+  return parseSender(process.env.MAIL_FROM || process.env.MAIL_USER || "");
 }
 
-function brandHeader(title) {
-  return `
-<div style="background:#0a1b14;padding:24px 32px;display:flex;align-items:center;justify-content:space-between;">
-  <div>
-    <span style="color:#d4a96a;font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;">Wild Incas</span>
-    <br><span style="color:white;font-size:13px;font-weight:600;">BACKPACKERS HOSTAL / CUENCA, ECUADOR</span>
-  </div>
-  <span style="color:white;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">${title}</span>
-</div>`;
+async function sendViaBrevoApi(message) {
+  if (!process.env.BREVO_API_KEY) throw new Error("BREVO_API_KEY no configurada");
+  const from = sender();
+  if (!from.email) throw new Error("MAIL_FROM no contiene un remitente valido");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.BREVO_TIMEOUT_MS || 5000));
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", "api-key": process.env.BREVO_API_KEY },
+      body: JSON.stringify({
+        sender: from,
+        to: [{ email: message.to, name: message.recipientName || message.to }],
+        subject: message.subject,
+        htmlContent: message.html,
+        textContent: message.text,
+        headers: { "X-SIMOT-Event-ID": message.idempotencyKey }
+      })
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || body.code || `Brevo API respondio ${response.status}`);
+    }
+    return { provider: "brevo-api", response: await response.json().catch(() => ({})) };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
-function brandFooter(idempotencyKey) {
-  return `
-<div style="padding:16px 32px;background:#f5f5f0;border-top:1px solid #e0e0d8;color:#888;font-size:11px;">
-  Gracias por elegir <strong>Wild Incas</strong>. Documento generado por SIMOT.<br>
-  ID único de envío: ${idempotencyKey || ""}
-</div>`;
+async function sendViaSmtp(message) {
+  const transport = createTransport();
+  if (!transport) throw new Error("SMTP no configurado");
+  const info = await transport.sendMail({
+    from: process.env.MAIL_FROM || process.env.MAIL_USER,
+    to: message.to,
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
+    headers: { "X-SIMOT-Event-ID": message.idempotencyKey }
+  });
+  return { provider: "smtp", response: { messageId: info.messageId } };
 }
 
-function rowLine(label, value, highlight) {
-  return `<tr style="border-bottom:1px solid #f0f0ea;">
-    <td style="padding:10px 32px;color:#666;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">${label}</td>
-    <td style="padding:10px 32px;font-size:13px;font-weight:700;color:${highlight || "#1a1a1a"};text-align:right;">${value}</td>
-  </tr>`;
+async function attempt(job) {
+  job.attempts = Number(job.attempts || 0) + 1;
+  job.lastAttemptAt = now();
+  job.status = "sending";
+  job.error = "";
+  persist();
+  const message = buildMessage(job.eventType, job.to, job.payload, job.idempotencyKey);
+  const errors = [];
+  const providers = configuredProviders();
+  if (!providers.length) {
+    job.status = "configuration_error";
+    job.error = "Configura BREVO_API_KEY en Render y verifica MAIL_FROM en Brevo";
+    job.nextAttemptAt = null;
+    persist();
+    return job;
+  }
+  for (const provider of providers) {
+    try {
+      const result = await provider(message);
+      job.status = "sent";
+      job.provider = result.provider;
+      job.providerResponse = result.response;
+      job.sentAt = now();
+      job.nextAttemptAt = null;
+      job.error = "";
+      persist();
+      return job;
+    } catch (error) {
+      errors.push(error.name === "AbortError" ? "Tiempo de espera agotado" : error.message);
+    }
+  }
+  job.status = job.attempts >= Number(process.env.MAIL_MAX_ATTEMPTS || 5) ? "failed" : "pending_retry";
+  job.error = errors.join(" | ");
+  job.nextAttemptAt = job.status === "pending_retry"
+    ? new Date(Date.now() + Math.min(30, 2 ** job.attempts) * 60000).toISOString()
+    : null;
+  persist();
+  return job;
 }
 
-// ── Build HTML per eventType ─────────────────────────────────────────────────
+function configuredProviders() {
+  const provider = selectedProvider();
+  const allowSmtpFallback = String(process.env.MAIL_SMTP_FALLBACK || "false") === "true";
+  const apiReady = Boolean(process.env.BREVO_API_KEY);
+  const smtpReady = Boolean(process.env.MAIL_HOST && process.env.MAIL_USER && process.env.MAIL_PASS);
+  const providers = [];
+  if (provider === "brevo-api" && apiReady) providers.push(sendViaBrevoApi);
+  if (provider === "smtp" && smtpReady) providers.push(sendViaSmtp);
+  if (allowSmtpFallback && provider !== "smtp" && smtpReady) providers.push(sendViaSmtp);
+  if (allowSmtpFallback && provider !== "brevo-api" && apiReady) providers.push(sendViaBrevoApi);
+  return providers;
+}
 
-function buildPaymentEmail({ reservation, guest, payment, idempotencyKey }) {
-  const res = reservation || {};
-  const p = payment || {};
-  const totalPaid = Number(res.totalPaid || p.amount || 0);
-  const remaining = Math.max(0, Number(res.total || 0) - totalPaid);
-  const date = new Date(p.paidAt || Date.now()).toLocaleString("es-EC", { timeZone: "America/Guayaquil", dateStyle: "medium", timeStyle: "short" });
+function selectedProvider() {
+  return String(process.env.MAIL_PROVIDER || "brevo-api").toLowerCase();
+}
 
-  return {
-    subject: `Pago confirmado - ${res.code || "Estadia Wild Incas"}`,
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f0;">
-<div style="max-width:540px;margin:32px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
-  ${brandHeader("Pago confirmado")}
-  <div style="padding:24px 32px 0;">
-    <p style="color:#333;font-size:14px;margin:0 0 16px;">Hola <strong>${guest?.name || "huesped"}</strong>, registramos correctamente tu pago.</p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;">
-    ${rowLine("Referencia", p.reference || p.id || "-", "#4a7c6f")}
-    ${rowLine("Metodo", p.method || "Efectivo")}
-    ${rowLine("Fecha", date)}
-  </table>
-  <div style="border-top:2px solid #f0f0ea;padding:16px 32px 8px;">
-    <table style="width:100%;border-collapse:collapse;">
-      <tr><td style="padding:6px 0;color:#666;font-size:12px;">Subtotal / total</td><td style="padding:6px 0;text-align:right;font-weight:700;">${money(res.total)}</td></tr>
-      <tr><td style="padding:6px 0;font-size:15px;font-weight:700;color:#0a1b14;">Saldo</td><td style="padding:6px 0;text-align:right;font-size:15px;font-weight:700;color:${remaining > 0 ? "#c0392b" : "#27ae60"};">${money(remaining)}</td></tr>
-    </table>
-  </div>
-  ${remaining <= 0 ? `<div style="margin:0 32px 20px;padding:12px 16px;background:#eafaf1;border-radius:6px;color:#1e8449;font-size:13px;font-weight:600;">Pago registrado. No existen valores pendientes en este comprobante.</div>` : `<div style="margin:0 32px 20px;padding:12px 16px;background:#fef9e7;border-radius:6px;color:#7d6608;font-size:13px;font-weight:600;">Saldo pendiente: ${money(remaining)}</div>`}
-  ${brandFooter(idempotencyKey)}
-</div></body></html>`
+function scheduleAttempt(job) {
+  if (inFlight.has(job.id)) return;
+  inFlight.add(job.id);
+  const task = setImmediate(async () => {
+    try {
+      await attempt(job);
+    } catch (error) {
+      job.status = "pending_retry";
+      job.error = error.message;
+      job.nextAttemptAt = new Date(Date.now() + 60000).toISOString();
+      persist();
+    } finally {
+      inFlight.delete(job.id);
+    }
+  });
+  task.unref();
+}
+
+async function enqueue({ eventType, to, idempotencyKey, payload }) {
+  const existing = state.jobs.find((item) => item.idempotencyKey === idempotencyKey);
+  if (existing) return existing;
+  const job = {
+    id: nanoid(11),
+    eventType,
+    type: eventType,
+    to: String(to || "").trim().toLowerCase(),
+    recipientName: payload?.guest?.name || payload?.name || "Cliente",
+    idempotencyKey,
+    payload: payload || {},
+    status: "queued",
+    attempts: 0,
+    error: "",
+    createdAt: now(),
+    nextAttemptAt: now()
   };
+  state.jobs.unshift(job);
+  persist();
+  scheduleAttempt(job);
+  return job;
 }
-
-function buildCheckInEmail({ reservation, guest, idempotencyKey }) {
-  const res = reservation || {};
-  return {
-    subject: `Bienvenido a Wild Incas - Habitacion ${res.roomId || ""}`,
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f0;">
-<div style="max-width:540px;margin:32px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
-  ${brandHeader("Check-in confirmado")}
-  <div style="padding:24px 32px;">
-    <p style="color:#333;font-size:14px;margin:0 0 16px;">Hola <strong>${guest?.name || "huesped"}</strong>, bienvenido a Wild Incas Hostal. Tu estadia ha sido registrada correctamente.</p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;">
-    ${rowLine("Reserva", res.code || "-")}
-    ${rowLine("Habitacion", `N° ${res.roomId}` || "-")}
-    ${rowLine("Entrada", res.checkIn || "-")}
-    ${rowLine("Salida prevista", res.checkOut || "-")}
-    ${rowLine("Total estadia", money(res.total))}
-  </table>
-  <div style="padding:20px 32px;"><p style="color:#666;font-size:13px;margin:0;">Para cualquier necesidad, nuestro equipo de recepcion esta disponible las 24 horas.</p></div>
-  ${brandFooter(idempotencyKey)}
-</div></body></html>`
-  };
-}
-
-function buildReservationEmail({ reservation, guest, idempotencyKey }, eventType) {
-  const res = reservation || {};
-  const title = eventType === "reservation-confirmed" ? "Reserva confirmada" : "Reserva actualizada";
-  return {
-    subject: `${title} - ${res.code || "Wild Incas"}`,
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f0;">
-<div style="max-width:540px;margin:32px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
-  ${brandHeader(title)}
-  <div style="padding:24px 32px;">
-    <p style="color:#333;font-size:14px;margin:0 0 16px;">Hola <strong>${guest?.name || "huesped"}</strong>, tu reserva en Wild Incas esta lista.</p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;">
-    ${rowLine("Reserva", res.code || "-")}
-    ${rowLine("Habitacion", `N° ${res.roomId}` || "-")}
-    ${rowLine("Entrada", res.checkIn || "-")}
-    ${rowLine("Salida", res.checkOut || "-")}
-    ${rowLine("Total", money(res.total), "#0a1b14")}
-  </table>
-  <div style="padding:20px 32px;">
-    <p style="color:#666;font-size:13px;margin:0;">Presentate en recepcion el dia de tu llegada. Llevamos tu informacion registrada.</p>
-  </div>
-  ${brandFooter(idempotencyKey)}
-</div></body></html>`
-  };
-}
-
-function buildInvoiceEmail({ reservation, guest, invoice, idempotencyKey }) {
-  const res = reservation || {};
-  const inv = invoice || {};
-  return {
-    subject: `Factura final - ${res.code || "Wild Incas"}`,
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f0;">
-<div style="max-width:540px;margin:32px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
-  ${brandHeader("Factura de estadia")}
-  <div style="padding:24px 32px;">
-    <p style="color:#333;font-size:14px;margin:0 0 16px;">Hola <strong>${guest?.name || "huesped"}</strong>, gracias por hospedarte con nosotros. Aqui esta tu factura final.</p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;">
-    ${rowLine("Reserva", res.code || "-")}
-    ${rowLine("Habitacion", `N° ${res.roomId}` || "-")}
-    ${rowLine("Entrada", res.checkIn || "-")}
-    ${rowLine("Salida", res.checkOut || "-")}
-    ${rowLine("Total facturado", money(res.total), "#0a1b14")}
-    ${rowLine("Pagado", money(res.totalPaid))}
-    ${rowLine("Saldo final", money(Math.max(0, Number(res.total || 0) - Number(res.totalPaid || 0))), "#27ae60")}
-  </table>
-  <div style="padding:20px 32px;"><p style="color:#666;font-size:13px;margin:0;">Esperamos verte pronto. Gracias por elegir Wild Incas Backpackers Hostal.</p></div>
-  ${brandFooter(idempotencyKey)}
-</div></body></html>`
-  };
-}
-
-function buildEmployeeEmail({ name, username, password, role, idempotencyKey }) {
-  return {
-    subject: "Acceso a SIMOT Wild Incas",
-    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f0;">
-<div style="max-width:540px;margin:32px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
-  ${brandHeader("Cuenta de empleado creada")}
-  <div style="padding:24px 32px;">
-    <p style="color:#333;font-size:14px;margin:0 0 16px;">Hola <strong>${name || username}</strong>, tu cuenta fue creada.</p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;">
-    ${rowLine("Usuario", username || "-", "#4a7c6f")}
-    ${rowLine("Contrasena temporal", password || "-", "#c0392b")}
-    ${rowLine("Rol", role || "-")}
-  </table>
-  <div style="padding:20px 32px;">
-    <a href="${process.env.APP_PUBLIC_URL || "https://fronted-wildincas-five.vercel.app"}" style="display:inline-block;background:#0a1b14;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:700;">Ingresar al sistema</a>
-  </div>
-  ${brandFooter(idempotencyKey)}
-</div></body></html>`
-  };
-}
-
-// ── /events — main dispatcher ────────────────────────────────────────────────
 
 app.post("/events", async (req, res) => {
-  const { eventType, to, idempotencyKey, payload = {} } = req.body || {};
-  if (!eventType || !to) return fail(res, "eventType y to son obligatorios", 422);
-
-  // Idempotency check
-  if (idempotencyKey && idempotencyCache.has(idempotencyKey)) {
-    return ok(res, { ...idempotencyCache.get(idempotencyKey), idempotent: true });
-  }
-
-  let mailOptions;
-  switch (eventType) {
-    case "payment-confirmation": mailOptions = buildPaymentEmail({ ...payload, idempotencyKey }); break;
-    case "check-in": mailOptions = buildCheckInEmail({ ...payload, idempotencyKey }); break;
-    case "reservation-confirmed":
-    case "reservation-modified": mailOptions = buildReservationEmail({ ...payload, idempotencyKey }, eventType); break;
-    case "invoice-finalized": mailOptions = buildInvoiceEmail({ ...payload, idempotencyKey }); break;
-    case "employee-welcome": mailOptions = buildEmployeeEmail({ ...payload, idempotencyKey }); break;
-    default:
-      return fail(res, `Tipo de evento desconocido: ${eventType}`, 400);
-  }
-
-  const record = { id: nanoid(8), eventType, to, idempotencyKey, status: "logged", sentAt: new Date().toISOString() };
-  sent.unshift(record);
-
-  const transport = createTransport();
-  if (transport) {
-    try {
-      await transport.sendMail({
-        from: process.env.MAIL_FROM || "Wild Incas <no-reply@wildincas.com>",
-        to,
-        subject: mailOptions.subject,
-        html: mailOptions.html
-      });
-      record.status = "sent";
-    } catch (err) {
-      record.status = "error";
-      record.error = err.message;
-      console.error(`[notifications] Failed to send ${eventType} to ${to}: ${err.message}`);
-    }
-  }
-
-  if (idempotencyKey) idempotencyCache.set(idempotencyKey, record);
-  ok(res, record, 201);
+  const { eventType, to, idempotencyKey, payload } = req.body;
+  if (!eventType || !to || !idempotencyKey) return fail(res, "Evento, correo e identificador unico son obligatorios", 422);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return fail(res, "Correo del destinatario no valido", 422);
+  const job = await enqueue({ eventType, to, idempotencyKey, payload });
+  ok(res, job, 202);
 });
-
-app.get("/events", (_req, res) => ok(res, sent.slice(0, 100)));
-
-// ── Legacy endpoints ─────────────────────────────────────────────────────────
 
 app.post("/receipts", async (req, res) => {
-  const receipt = { id: nanoid(8), to: req.body.to, guestName: req.body.guestName, amount: req.body.amount, concept: req.body.concept, status: "logged", createdAt: new Date().toISOString() };
-  const transport = createTransport();
-  if (transport) {
-    try {
-      await transport.sendMail({ from: process.env.MAIL_FROM || "SIMOT Wild Incas <no-reply@wildincas.local>", to: receipt.to, subject: `Comprobante SIMOT - ${receipt.concept}`, text: `Hola ${receipt.guestName}, se registra el comprobante por $${receipt.amount}. Concepto: ${receipt.concept}.` });
-      receipt.status = "sent";
-    } catch (_err) { receipt.status = "error"; }
-  }
-  sent.unshift(receipt);
-  ok(res, receipt, 201);
-});
-
-app.get("/receipts", (_req, res) => ok(res, sent));
-
-app.post("/campaigns", async (req, res) => {
-  const { subject, body, guests = [] } = req.body;
-  if (!subject || !body) return fail(res, "Asunto y cuerpo son obligatorios", 422);
-  if (!Array.isArray(guests) || guests.length === 0) return fail(res, "Debes incluir al menos un destinatario", 422);
-  const campaign = { id: nanoid(8), subject, body, total: guests.length, sent: 0, failed: 0, status: "sending", createdAt: new Date().toISOString(), results: [] };
-  campaigns.unshift(campaign);
-  (async () => {
-    const transport = createTransport();
-    for (const guest of guests) {
-      const result = { guestId: guest.id, to: guest.email, guestName: guest.name, status: "logged" };
-      if (transport && guest.email) {
-        try {
-          await transport.sendMail({ from: process.env.MAIL_FROM || "Wild Incas Hostal <no-reply@wildincas.local>", to: guest.email, subject, text: `Hola ${guest.name},\n\n${body}\n\n---\nWild Incas Backpackers Hostal | Cuenca, Ecuador\nSISTEMA SIMOT v2.0` });
-          result.status = "sent"; campaign.sent++;
-        } catch (_err) { result.status = "error"; campaign.failed++; }
-      } else { result.status = "logged"; campaign.sent++; }
-      campaign.results.push(result);
+  if (!req.body.to) return fail(res, "El correo del cliente es obligatorio", 422);
+  const amount = parseMoney(req.body.amount);
+  const saleNumber = req.body.saleNumber || `NV-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${nanoid(4).toUpperCase()}`;
+  const job = await enqueue({
+    eventType: "payment-confirmation",
+    to: req.body.to,
+    idempotencyKey: req.body.idempotencyKey || `legacy-receipt:${saleNumber}`,
+    payload: {
+      guest: { name: req.body.guestName || "Cliente", documentNumber: req.body.documentNumber || "Consumidor final" },
+      payment: { id: saleNumber, amount, method: req.body.method || "", createdAt: now() },
+      reservation: { code: saleNumber, roomId: req.body.roomId || "", total: amount, lines: [{ description: req.body.concept || "Hospedaje", quantity: 1, unitPrice: amount, total: amount }] }
     }
-    campaign.status = campaign.failed === campaign.total ? "failed" : "complete";
-  })();
-  ok(res, campaign, 201);
+  });
+  ok(res, { ...job, guestName: job.recipientName, amount, saleNumber }, 201);
 });
 
-app.get("/campaigns", (_req, res) => ok(res, campaigns));
-app.get("/campaigns/:id", (req, res) => {
-  const campaign = campaigns.find((c) => c.id === req.params.id);
-  if (!campaign) return fail(res, "Campana no encontrada", 404);
-  ok(res, campaign);
+app.post("/employees/welcome", async (req, res) => {
+  if (!req.body.to || !req.body.username || !req.body.password) return fail(res, "Correo, usuario y contrasena son obligatorios", 422);
+  const job = await enqueue({
+    eventType: "employee-welcome",
+    to: req.body.to,
+    idempotencyKey: req.body.idempotencyKey || `employee-welcome:${req.body.username}`,
+    payload: req.body
+  });
+  ok(res, job, 201);
 });
 
-app.post("/email", async (req, res) => {
-  const { to, subject, text, html } = req.body;
-  const transport = createTransport();
-  if (!transport) return ok(res, { status: "logged" });
+app.post("/test", async (req, res) => {
+  if (!req.body.to) return fail(res, "Correo destino obligatorio", 422);
+  const job = await enqueue({
+    eventType: "test",
+    to: req.body.to,
+    idempotencyKey: `test:${req.body.to}:${Date.now()}`,
+    payload: { name: "Prueba operativa", createdAt: now() }
+  });
+  ok(res, job, 201);
+});
+
+app.get(["/events", "/receipts"], (req, res) => {
+  const status = req.query.status || "all";
+  ok(res, state.jobs.filter((item) => status === "all" || item.status === status));
+});
+
+app.post("/events/:id/retry", async (req, res) => {
+  const job = state.jobs.find((item) => item.id === req.params.id);
+  if (!job) return fail(res, "Correo no encontrado", 404);
+  job.status = "queued";
+  job.nextAttemptAt = now();
+  job.error = "";
+  persist();
+  scheduleAttempt(job);
+  ok(res, job, 202);
+});
+
+app.get("/config", (_req, res) => ok(res, {
+  provider: selectedProvider(),
+  ready: configuredProviders().length > 0,
+  smtpConfigured: Boolean(process.env.MAIL_HOST && process.env.MAIL_USER && process.env.MAIL_PASS),
+  apiConfigured: Boolean(process.env.BREVO_API_KEY),
+  smtpFallback: String(process.env.MAIL_SMTP_FALLBACK || "false") === "true",
+  recommendation: process.env.BREVO_API_KEY
+    ? "Brevo API HTTPS activa"
+    : "Agrega BREVO_API_KEY en Render; SMTP no funciona en instancias Free",
+  from: process.env.MAIL_FROM || "",
+  queue: {
+    total: state.jobs.length,
+    sent: state.jobs.filter((item) => item.status === "sent").length,
+    pending: state.jobs.filter((item) => ["queued", "sending", "pending_retry"].includes(item.status)).length,
+    failed: state.jobs.filter((item) => ["failed", "configuration_error"].includes(item.status)).length
+  }
+}));
+
+async function retryPending() {
+  if (retryRunning) return;
+  retryRunning = true;
   try {
-    await transport.sendMail({ from: process.env.MAIL_FROM || "SIMOT <no-reply@wildincas.local>", to, subject, text, html });
-    ok(res, { status: "sent" });
-  } catch (error) { fail(res, error.message, 500); }
-});
+    const due = state.jobs.filter((item) => item.status === "pending_retry" && item.nextAttemptAt && item.nextAttemptAt <= now()).slice(0, 5);
+    for (const job of due) scheduleAttempt(job);
+  } finally {
+    retryRunning = false;
+  }
+}
 
-app.get("/config", (_req, res) => ok(res, { configured: !!process.env.MAIL_HOST }));
+function buildMessage(eventType, to, payload, idempotencyKey) {
+  const guest = payload?.guest || {};
+  const reservation = payload?.reservation || {};
+  const invoice = payload?.invoice || {};
+  const payment = payload?.payment || {};
+  const name = guest.name || payload?.name || reservation.guest?.name || "Cliente";
+  const messages = {
+    "reservation-confirmed": {
+      title: "Reserva confirmada",
+      subject: `Reserva ${reservation.code} confirmada - Wild Incas`,
+      intro: `Hola ${escapeHtml(name)}, tu reserva fue confirmada.`,
+      rows: reservationRows(reservation),
+      total: reservation.total
+    },
+    "reservation-modified": {
+      title: "Reserva actualizada",
+      subject: `Actualizacion de reserva ${reservation.code} - Wild Incas`,
+      intro: `Hola ${escapeHtml(name)}, registramos cambios en tu reserva.`,
+      rows: reservationRows(reservation),
+      total: reservation.total
+    },
+    "reservation-cancelled": {
+      title: "Reserva cancelada",
+      subject: `Reserva ${reservation.code} cancelada - Wild Incas`,
+      intro: `Hola ${escapeHtml(name)}, tu reserva fue cancelada.`,
+      rows: [...reservationRows(reservation), ["Motivo", reservation.cancellationReason || "Cancelacion solicitada"]]
+    },
+    "check-in": {
+      title: "Check-in registrado",
+      subject: `Comprobante de check-in ${reservation.code} - Wild Incas`,
+      intro: `Bienvenido ${escapeHtml(name)}. Tu ingreso al hostal fue registrado.`,
+      rows: reservationRows(reservation),
+      total: reservation.total
+    },
+    "payment-confirmation": {
+      title: "Pago confirmado",
+      subject: `Pago confirmado ${reservation.code || payment.id} - Wild Incas`,
+      intro: `Hola ${escapeHtml(name)}, registramos correctamente tu pago.`,
+      rows: [["Referencia", payment.id || reservation.code], ["Metodo", payment.method || ""], ["Fecha", formatDate(payment.createdAt)]],
+      total: payment.amount
+    },
+    "invoice-finalized": {
+      title: `Factura ${invoice.number}`,
+      subject: `Factura final ${invoice.number} - Wild Incas`,
+      intro: `Gracias por hospedarte con nosotros, ${escapeHtml(name)}. Esta es tu factura definitiva.`,
+      rows: [["Factura", invoice.number], ["Reserva", reservation.code], ["Habitacion", reservation.roomId], ["Entrada", reservation.checkIn], ["Salida", reservation.checkOut], ["Estado de pago", invoice.paymentStatus]],
+      lines: invoice.lines,
+      total: invoice.total,
+      balance: invoice.balance
+    },
+    "employee-welcome": {
+      title: "Cuenta de empleado creada",
+      subject: "Acceso a SIMOT Wild Incas",
+      intro: `Hola ${escapeHtml(payload.name || payload.username)}, tu cuenta fue creada.`,
+      rows: [["Usuario", payload.username], ["Contrasena temporal", payload.password], ["Rol", payload.role || "Recepcion"]],
+      link: process.env.APP_PUBLIC_URL
+    },
+    test: {
+      title: "Prueba de correo exitosa",
+      subject: "Prueba Brevo - SIMOT Wild Incas",
+      intro: "La configuracion de correo transaccional esta funcionando.",
+      rows: [["Destino", to], ["Fecha", formatDate(payload.createdAt)]]
+    }
+  };
+  const content = messages[eventType] || {
+    title: "Notificacion Wild Incas",
+    subject: "Notificacion de Wild Incas",
+    intro: `Hola ${escapeHtml(name)}.`,
+    rows: []
+  };
+  const html = emailHtml(content, idempotencyKey);
+  return {
+    to,
+    recipientName: name,
+    idempotencyKey,
+    subject: content.subject,
+    html,
+    text: `${content.title}. ${stripHtml(content.intro)} Total: ${content.total ?? ""}`
+  };
+}
 
+function reservationRows(reservation) {
+  return [["Reserva", reservation.code], ["Habitacion", reservation.roomId], ["Entrada", reservation.checkIn], ["Salida", reservation.checkOut], ["Huespedes", `${reservation.adults || 1} adulto(s), ${reservation.children || 0} nino(s)`]];
+}
+
+function emailHtml(content, eventId) {
+  const rows = (content.rows || []).map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value || "-")}</td></tr>`).join("");
+  const lines = (content.lines || []).map((line) => `<tr><td>${escapeHtml(line.description)}</td><td class="center">${line.quantity}</td><td class="money">$${parseMoney(line.unitPrice).toFixed(2)}</td><td class="money">$${parseMoney(line.total).toFixed(2)}</td></tr>`).join("");
+  const detailTable = content.lines?.length ? `<table><thead><tr><th>Detalle</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${lines}</tbody></table>` : "";
+  const total = content.total !== undefined ? `<div class="total"><span>Total</span><strong>$${parseMoney(content.total).toFixed(2)}</strong></div>` : "";
+  const balance = content.balance > 0 ? `<p class="pending">Saldo pendiente: $${parseMoney(content.balance).toFixed(2)}</p>` : "";
+  const link = content.link ? `<p><a class="button" href="${escapeHtml(content.link)}">Ingresar al sistema</a></p>` : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>
+    body{margin:0;background:#f2f5f2;color:#26332f;font-family:Arial,sans-serif;padding:28px 12px}.wrap{max-width:700px;margin:auto;background:#fff;border:1px solid #dbe4dd}.head{background:#173f37;color:#fff;padding:30px}.head small{color:#d8be80;font-weight:700}.head h1{margin:8px 0 0;font-size:28px}.content{padding:30px}.intro{font-size:16px;line-height:1.6}table{width:100%;border-collapse:collapse;margin:22px 0}th,td{padding:12px;border-bottom:1px solid #e4e9e5;text-align:left}th{color:#65736d;font-size:12px;text-transform:uppercase}.money{text-align:right}.center{text-align:center}.total{display:flex;justify-content:space-between;background:#eef4f0;padding:18px;margin-top:20px;font-size:20px;color:#173f37}.pending{color:#a54848;font-weight:700}.button{display:inline-block;background:#173f37;color:#fff!important;padding:12px 18px;text-decoration:none}.foot{padding:18px 30px;border-top:1px solid #e4e9e5;color:#738079;font-size:12px}.event{font-family:monospace}
+  </style></head><body><div class="wrap"><div class="head"><small>WILD INCAS BACKPACKERS HOSTAL</small><h1>${escapeHtml(content.title)}</h1></div><div class="content"><p class="intro">${content.intro}</p>${rows ? `<table><tbody>${rows}</tbody></table>` : ""}${detailTable}${total}${balance}${link}</div><div class="foot">Comprobante generado por SIMOT. ID unico: <span class="event">${escapeHtml(eventId)}</span></div></div></body></html>`;
+}
+
+function parseSender(value) {
+  const match = String(value || "").match(/^(.*)<(.+)>$/);
+  if (!match) return { name: "Wild Incas", email: String(value || "").trim() };
+  return { name: match[1].trim() || "Wild Incas", email: match[2].trim() };
+}
+
+function formatDate(value) {
+  return value ? new Date(value).toLocaleString("es-EC") : "";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+function stripHtml(value) {
+  return String(value || "").replace(/<[^>]*>/g, "");
+}
+
+for (const job of state.jobs) {
+  if (job.status === "sending") {
+    job.status = "pending_retry";
+    job.nextAttemptAt = now();
+  }
+}
+setTimeout(retryPending, 1500).unref();
+setInterval(retryPending, 60000).unref();
 listen();
