@@ -106,4 +106,26 @@ app.get("/campaigns/:id", (req, res) => {
   ok(res, campaign);
 });
 
+app.post("/email", async (req, res) => {
+  const { to, subject, text, html } = req.body;
+  const transport = createTransport();
+  if (!transport) return ok(res, { status: "logged" });
+  try {
+    await transport.sendMail({
+      from: process.env.MAIL_FROM || "SIMOT <no-reply@wildincas.local>",
+      to,
+      subject,
+      text,
+      html
+    });
+    ok(res, { status: "sent" });
+  } catch (error) {
+    fail(res, error.message, 500);
+  }
+});
+
+app.get("/config", (_req, res) => {
+  ok(res, { configured: !!process.env.MAIL_HOST });
+});
+
 listen();

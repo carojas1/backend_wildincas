@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { employees as seedEmployees } from "../../shared/seed.js";
-import { createService, ok, fail } from "../../shared/service.js";
+import { createService, ok, fail, serviceRequest } from "../../shared/service.js";
 
 const port = Number(process.env.EMPLOYEES_PORT || 7106);
 const { app, listen } = createService({ name: "employees", port, description: "Empleados, turnos, asistencia y permisos" });
@@ -32,6 +32,68 @@ app.post("/", (req, res) => {
   const employee = { id: nanoid(8), status: "active", modules: [], since: new Date().toISOString().slice(0, 10), ...req.body };
   employees.unshift(employee);
   ok(res, employee, 201);
+});
+
+app.post("/onboard", async (req, res) => {
+  const { name, email, phone, shift, hours, username, password, role, modules, roleId } = req.body;
+  try {
+    const userResult = await serviceRequest("auth", "/users", {
+      method: "POST",
+      body: { name, email, username, password, role, roleId, modules, status: "active" }
+    });
+    
+    const employee = { id: nanoid(8), name, email, phone, shift, hours, username, roleId, status: "active", modules, since: new Date().toISOString().slice(0, 10) };
+    employees.unshift(employee);
+    
+    const notification = await serviceRequest("notifications", "/email", {
+      method: "POST",
+      body: {
+        to: email,
+        subject: "Bienvenido a SIMOT - Accesos",
+        text: `Hola ${name}, tu usuario es: ${username} y tu contrasena temporal: ${password}`
+      }
+    }).catch(() => ({ status: "pending" }));
+    
+    ok(res, { employee, notification });
+  } catch (error) {
+    fail(res, error.message, 500);
+  }
+});
+
+app.post("/link-user", (req, res) => {
+  const { id: userId, name, email, username, shift, hours, roleId, modules } = req.body;
+  const employee = { id: nanoid(8), name, email, phone: "", shift, hours, username, roleId, status: "active", modules, since: new Date().toISOString().slice(0, 10) };
+  employees.unshift(employee);
+  ok(res, employee);
+});
+
+app.patch("/:id", async (req, res) => {
+  const employee = employees.find(e => e.id === req.params.id);
+  if (!employee) return fail(res, "Empleado no encontrado", 404);
+  
+  Object.assign(employee, req.body);
+  
+  try {
+    const usersResponse = await serviceRequest("auth", "/users").catch(() => null);
+    if (usersResponse && Array.isArray(usersResponse)) {
+      const authUser = usersResponse.find(u => u.username === employee.username);
+      if (authUser) {
+         await serviceRequest("auth", `/users/${authUser.id}`, {
+           method: "PATCH",
+           body: { status: employee.status, modules: employee.modules, roleId: employee.roleId }
+         });
+      }
+    }
+  } catch(e) {}
+  
+  ok(res, employee);
+});
+
+app.delete("/:id", (req, res) => {
+  const index = employees.findIndex(e => e.id === req.params.id);
+  if (index === -1) return fail(res, "Empleado no encontrado", 404);
+  employees.splice(index, 1);
+  ok(res, { deleted: true });
 });
 
 // --- Asistencia ---
