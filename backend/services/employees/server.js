@@ -59,14 +59,17 @@ app.post("/onboard", async (req, res) => {
     employees.unshift(employee);
     await persistEmployees();
     
-    const notification = await serviceRequest("notifications", "/email", {
+    // Send email asynchronously so it doesn't block the request if SMTP hangs
+    serviceRequest("notifications", "/email", {
       method: "POST",
       body: {
         to: email,
         subject: "Bienvenido a SIMOT - Accesos",
         text: `Hola ${name}, tu usuario es: ${username} y tu contrasena temporal: ${password}`
       }
-    }).catch(() => ({ status: "pending" }));
+    }).catch(() => {});
+    
+    const notification = { status: "pending" };
     
     ok(res, { employee, notification });
   } catch (error) {
