@@ -12,7 +12,7 @@ function persist() {
   return saveState("guests", guests);
 }
 
-await persist().catch((error) => console.warn(`Initial guest persistence deferred: ${error.message}`));
+// NOTE: Do NOT persist on startup — if Supabase load timed out, persisting now would wipe real data.
 
 app.get("/", (req, res) => {
   const { q = "", status = "all" } = req.query;

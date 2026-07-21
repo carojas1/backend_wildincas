@@ -63,7 +63,8 @@ function persist() {
   return saveState("reservations", state);
 }
 
-await persist().catch((error) => console.warn(`Initial reservation persistence deferred: ${error.message}`));
+// NOTE: Do NOT call persist() here on startup.
+// If Supabase load timed out, persisting now would permanently overwrite real data with empty seed data.
 
 function now() {
   return new Date().toISOString();

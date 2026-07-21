@@ -30,7 +30,7 @@ function persistChecklist() {
   return saveState("checklist", checklist);
 }
 
-await persistChecklist().catch((error) => console.warn(`Initial checklist persistence deferred: ${error.message}`));
+// NOTE: Do NOT persist on startup \u2014 if Supabase load timed out, persisting now would wipe real checklist data.
 
 app.get("/agenda", (_req, res) => {
   ok(res, {

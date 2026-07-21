@@ -36,7 +36,7 @@ function persistUsers() {
   return saveState("auth_users", users);
 }
 
-await persistUsers().catch((error) => console.warn(`Initial auth persistence deferred: ${error.message}`));
+// NOTE: Do NOT persist on startup — if Supabase load timed out, persisting now would wipe real user accounts.
 
 const tokenSecret = process.env.AUTH_TOKEN_SECRET || process.env.SUPABASE_SECRET_KEY || "simot-development-token-secret";
 const tokenTtlMs = Number(process.env.AUTH_TOKEN_TTL_MS || 8 * 60 * 60 * 1000);

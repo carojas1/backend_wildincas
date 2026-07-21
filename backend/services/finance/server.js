@@ -223,7 +223,7 @@ const reconciledMovements = reconcileVoidedPaymentMovements() + reconcileDuplica
 if (reconciledMovements > 0) {
   console.info(`[finance] reconciled ${reconciledMovements} voided payment movement(s)`);
 }
-await persist().catch((error) => console.warn(`Initial finance persistence deferred: ${error.message}`));
+// NOTE: Do NOT persist on startup — if Supabase load timed out, persisting now would wipe real payment/finance data.
 
 app.get("/movements", (req, res) => {
   const { type = "all", date = "" } = req.query;
