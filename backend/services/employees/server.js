@@ -8,15 +8,13 @@ const employees = structuredClone(seedEmployees);
 
 // --- Asistencia en memoria ---
 const attendance = [
-  { id: "a1", employeeId: "e1", employeeName: "Valentina Mora", date: "2026-07-18", checkIn: "06:02", checkOut: "14:05", shift: "Manana", status: "complete" },
-  { id: "a2", employeeId: "e2", employeeName: "Laura Sanchez", date: "2026-07-18", checkIn: "14:01", checkOut: "22:03", shift: "Tarde", status: "complete" },
-  { id: "a3", employeeId: "e3", employeeName: "Apolo Administrador", date: "2026-07-18", checkIn: "22:00", checkOut: "06:01", shift: "Noche", status: "complete" },
-  { id: "a4", employeeId: "e1", employeeName: "Valentina Mora", date: "2026-07-19", checkIn: "06:03", checkOut: "14:02", shift: "Manana", status: "complete" },
-  { id: "a5", employeeId: "e2", employeeName: "Laura Sanchez", date: "2026-07-19", checkIn: "14:07", checkOut: null, shift: "Tarde", status: "active" },
-  { id: "a6", employeeId: "e3", employeeName: "Apolo Administrador", date: "2026-07-20", checkIn: "22:00", checkOut: null, shift: "Noche", status: "active" },
-  { id: "a7", employeeId: "e1", employeeName: "Valentina Mora", date: "2026-07-20", checkIn: "06:01", checkOut: "14:08", shift: "Manana", status: "complete" },
-  { id: "a8", employeeId: "e2", employeeName: "Laura Sanchez", date: "2026-07-17", checkIn: "14:00", checkOut: "22:01", shift: "Tarde", status: "complete" },
-  { id: "a9", employeeId: "e3", employeeName: "Apolo Administrador", date: "2026-07-17", checkIn: "22:00", checkOut: "06:00", shift: "Noche", status: "complete" },
+  { id: "a1", employeeId: "e1", employeeName: "Valentina Mora", username: "valentina", date: "2026-07-18", startedAt: "2026-07-18T06:02:00.000Z", endedAt: "2026-07-18T14:05:00.000Z", durationMinutes: 483, shift: "Manana", status: "complete" },
+  { id: "a2", employeeId: "e2", employeeName: "Laura Sanchez", username: "laura", date: "2026-07-18", startedAt: "2026-07-18T14:01:00.000Z", endedAt: "2026-07-18T22:03:00.000Z", durationMinutes: 482, shift: "Tarde", status: "complete" },
+  { id: "a3", employeeId: "e3", employeeName: "Apolo Administrador", username: "apolo", date: "2026-07-18", startedAt: "2026-07-18T22:00:00.000Z", endedAt: "2026-07-19T06:01:00.000Z", durationMinutes: 481, shift: "Noche", status: "complete" },
+  { id: "a4", employeeId: "e1", employeeName: "Valentina Mora", username: "valentina", date: "2026-07-19", startedAt: "2026-07-19T06:03:00.000Z", endedAt: "2026-07-19T14:02:00.000Z", durationMinutes: 479, shift: "Manana", status: "complete" },
+  { id: "a5", employeeId: "e2", employeeName: "Laura Sanchez", username: "laura", date: "2026-07-20", startedAt: "2026-07-20T14:07:00.000Z", endedAt: null, durationMinutes: null, shift: "Tarde", status: "active" },
+  { id: "a6", employeeId: "e1", employeeName: "Valentina Mora", username: "valentina", date: "2026-07-20", startedAt: "2026-07-20T06:01:00.000Z", endedAt: "2026-07-20T14:08:00.000Z", durationMinutes: 487, shift: "Manana", status: "complete" },
+  { id: "a7", employeeId: "e2", employeeName: "Laura Sanchez", username: "laura", date: "2026-07-17", startedAt: "2026-07-17T14:00:00.000Z", endedAt: "2026-07-17T22:01:00.000Z", durationMinutes: 481, shift: "Tarde", status: "complete" },
 ];
 
 // --- Empleados ---
@@ -68,6 +66,39 @@ app.get("/attendance", (req, res) => {
   let result = attendance.filter((a) => a.date >= from && a.date <= to);
   if (employeeId) result = result.filter((a) => a.employeeId === employeeId);
   ok(res, result);
+});
+
+app.post("/attendance/me", (req, res) => {
+  const username = req.headers["x-user-username"] || "";
+  const employee = employees.find((e) => e.username === username);
+  if (!employee) return ok(res, { employee: null, active: null });
+  const today = new Date().toISOString().slice(0, 10);
+  const { action } = req.body || {};
+  if (action === "clock_in") {
+    const existing = attendance.find((a) => a.employeeId === employee.id && a.date === today && !a.checkOut);
+    if (existing) return fail(res, "Ya tienes una jornada activa hoy", 409);
+    const now = new Date().toISOString();
+    const record = { id: nanoid(8), employeeId: employee.id, employeeName: employee.name, username, startedAt: now, endedAt: null, durationMinutes: null, date: today };
+    attendance.unshift(record);
+    const active = attendance.find((a) => a.employeeId === employee.id && !a.endedAt);
+    return ok(res, { employee, active });
+  }
+  if (action === "clock_out") {
+    const active = attendance.find((a) => a.employeeId === employee.id && !a.endedAt);
+    if (!active) return fail(res, "No tienes jornada activa", 404);
+    active.endedAt = new Date().toISOString();
+    active.durationMinutes = Math.round((new Date(active.endedAt) - new Date(active.startedAt)) / 60000);
+    return ok(res, { employee, active: null });
+  }
+  return fail(res, "Accion invalida. Usa clock_in o clock_out", 400);
+});
+
+app.get("/attendance/me", (req, res) => {
+  const username = req.headers["x-user-username"] || "";
+  const employee = employees.find((e) => e.username === username);
+  if (!employee) return ok(res, { employee: null, active: null });
+  const active = attendance.find((a) => a.employeeId === employee.id && !a.endedAt) || null;
+  ok(res, { employee, active });
 });
 
 app.post("/attendance/clock-in", (req, res) => {

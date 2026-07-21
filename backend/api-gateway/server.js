@@ -165,12 +165,20 @@ async function authorize(req, path, serviceName) {
   if (!token) return { allowed: false, status: 401, message: "Debes iniciar sesion" };
   try {
     const authUrl = await resolveService("auth");
-    const response = await fetch(`${authUrl}/me`, { headers: { Authorization: `Bearer ${token}` } });
-    const payload = await response.json();
+    const controller = new AbortController();
+    const authTimeout = setTimeout(() => controller.abort(), 25000);
+    let response, payload;
+    try {
+      response = await fetch(`${authUrl}/me`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+      payload = await response.json();
+    } finally {
+      clearTimeout(authTimeout);
+    }
     if (!response.ok || payload.ok === false) return { allowed: false, status: 401, message: "La sesion ya no es valida" };
     const user = payload.data;
     const modules = Array.isArray(user.modules) ? user.modules : [];
-    if (user.roleId === "admin" || user.role === "Administrador" || modules.includes("all")) return { allowed: true, user };
+    const isAdmin = user.roleId === "admin" || user.role === "Administrador" || modules.includes("all");
+    if (isAdmin) return { allowed: true, user };
     if (serviceName === "auth" && ["/me", "/logout"].includes(subpath)) return { allowed: true, user };
     if (serviceName === "employees" && subpath.startsWith("/attendance/me")) return { allowed: true, user };
     const required = requiredModule(serviceName, subpath);
