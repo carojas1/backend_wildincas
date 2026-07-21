@@ -147,7 +147,13 @@ app.get("/attendance", (req, res) => {
 
   let result = attendance.filter((a) => a.date >= from && a.date <= to);
   if (employeeId) result = result.filter((a) => a.employeeId === employeeId);
-  ok(res, result);
+
+  // Return structured object that the frontend expects
+  const active = result.filter((a) => !a.endedAt);
+  const history = result.filter((a) => a.endedAt);
+  const activeEmployeeIds = new Set(active.map((a) => a.employeeId));
+  const activeEmployees = employees.filter((e) => activeEmployeeIds.has(e.id));
+  ok(res, { active, history, employees: activeEmployees });
 });
 
 app.post("/attendance/me", async (req, res) => {

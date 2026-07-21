@@ -1,7 +1,7 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 const SAVE_ATTEMPTS = Math.max(1, Number(process.env.SUPABASE_SAVE_ATTEMPTS || 3));
-const REQUEST_TIMEOUT_MS = Math.max(1500, Number(process.env.SUPABASE_TIMEOUT_MS || 6500));
+const REQUEST_TIMEOUT_MS = Math.max(3000, Number(process.env.SUPABASE_TIMEOUT_MS || 20000));
 const writeQueues = new Map();
 
 function enabled() {
