@@ -129,7 +129,8 @@ app.post("/factory-reset", async (req, res) => {
   const headers = { apikey: secretKey, Authorization: `Bearer ${secretKey}` };
   const tables = [
     "simot_state", "simot_reservations", "simot_guests", "simot_auth_users", 
-    "simot_finance", "simot_checklist", "simot_incidents"
+    "simot_finance", "simot_checklist", "simot_incidents", "simot_rooms",
+    "simot_employees", "simot_attendance", "simot_notifications", "simot_audit"
   ];
 
   try {
