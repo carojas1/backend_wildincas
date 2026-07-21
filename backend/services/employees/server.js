@@ -59,15 +59,18 @@ app.post("/onboard", async (req, res) => {
     employees.unshift(employee);
     await persistEmployees();
     
-    // Send email asynchronously so it doesn't block the request if SMTP hangs
-    serviceRequest("notifications", "/email", {
-      method: "POST",
-      body: {
-        to: email,
-        subject: "Bienvenido a SIMOT - Accesos",
-        text: `Hola ${name}, tu usuario es: ${username} y tu contrasena temporal: ${password}`
-      }
-    }).catch(() => {});
+    // Send welcome email asynchronously with branded HTML template
+    if (email) {
+      serviceRequest("notifications", "/events", {
+        method: "POST",
+        body: {
+          eventType: "employee-welcome",
+          to: email,
+          idempotencyKey: `employee-welcome:${username}:${Date.now()}`,
+          payload: { name, username, password, role }
+        }
+      }).catch((err) => console.warn(`Welcome email failed for ${username}: ${err.message}`));
+    }
     
     const notification = { status: "pending" };
     
