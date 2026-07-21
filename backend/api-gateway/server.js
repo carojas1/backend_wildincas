@@ -120,6 +120,38 @@ app.get("/health", async (_req, res) => {
   res.json({ service: "api-gateway", status: "ok", discovery: discoveryUrl, services: payload.data });
 });
 
+app.post("/factory-reset", async (req, res) => {
+  if (req.body.confirm !== "yes") return res.status(400).json({ error: "Debe confirmar con confirm: 'yes'" });
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!supabaseUrl || !secretKey) return res.status(500).json({ error: "Missing Supabase env vars" });
+
+  const headers = { apikey: secretKey, Authorization: `Bearer ${secretKey}` };
+  const tables = [
+    "simot_state", "simot_reservations", "simot_guests", "simot_auth_users", 
+    "simot_finance", "simot_checklist", "simot_incidents"
+  ];
+
+  try {
+    const results = [];
+    for (const table of tables) {
+      const response = await fetch(`${supabaseUrl}/rest/v1/${table}?id=not.is.null`, { 
+        method: "DELETE", headers 
+      });
+      // also delete from legacy table where key is not null
+      if (table === "simot_state") {
+        await fetch(`${supabaseUrl}/rest/v1/${table}?key=not.is.null`, { 
+          method: "DELETE", headers 
+        });
+      }
+      results.push({ table, ok: response.ok });
+    }
+    res.json({ success: true, results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 for (const [path, serviceName] of Object.entries(routes)) {
   app.use(path, async (req, res) => {
     try {
